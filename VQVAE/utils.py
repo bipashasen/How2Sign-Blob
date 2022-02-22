@@ -26,18 +26,16 @@ def load_cifar():
 						   ]))
 	return train, val
 
-def load_hangestures(test=False):
+def load_hangestures(data_type, batch_size, base, test=False):
 	if test:
-		return cds.HandGesturesDataset('test')
-	return cds.HandGesturesDataset('train'), cds.HandGesturesDataset('val')
+		return cds.HandGesturesDataset('test', data_type, batch_size, base)
+	return cds.HandGesturesDataset('train', data_type, batch_size, base), cds.HandGesturesDataset('val', data_type, batch_size, base)
 
 def load_blob2full(transform):
 	return cds.Blob2Full('train', transform)
 
 def load_block():
-	data_folder_path = os.getcwd()
-	data_file_path = data_folder_path + \
-		'/data/randact_traj_length_100_n_trials_1000_n_contexts_1.npy'
+	data_file_path = '/scratch/bipasha31/vqvae_codes'
 
 	train = BlockDataset(data_file_path, train=True,
 						 transform=transforms.Compose([
@@ -54,15 +52,13 @@ def load_block():
 					   ]))
 	return train, val
 
-def load_latent_block():
-	data_folder_path = os.getcwd()
-	data_file_path = data_folder_path + \
-		'/data/latent_e_indices.npy'
+def load_latent_block(batch_size):
+	data_file_path = '/scratch/bipasha31/vqvae_codes'
 
-	train = LatentBlockDataset(data_file_path, train=True,
+	train = LatentBlockDataset(data_file_path, train=True, batch_size=batch_size,
 						 transform=None)
 
-	val = LatentBlockDataset(data_file_path, train=False,
+	val = LatentBlockDataset(data_file_path, train=False, batch_size=batch_size,
 					   transform=None)
 	return train, val
 
@@ -80,7 +76,7 @@ def data_loaders(train_data, val_data, batch_size):
 	return train_loader, val_loader
 
 
-def load_data_and_data_loaders(dataset, batch_size, distributed=False, test=False):
+def load_data_and_data_loaders(dataset, data_type, batch_size, base, distributed=False, test=False):
 	if dataset == 'CIFAR10':
 		training_data, validation_data = load_cifar()
 		training_loader, validation_loader = data_loaders(
@@ -94,15 +90,16 @@ def load_data_and_data_loaders(dataset, batch_size, distributed=False, test=Fals
 
 		x_train_var = np.var(training_data.data / 255.0)
 	elif dataset == 'LATENT_BLOCK':
-		training_data, validation_data = load_latent_block()
+		training_data, validation_data = load_latent_block(batch_size)
 		training_loader, validation_loader = data_loaders(
-			training_data, validation_data, batch_size)
+			training_data, validation_data, 1)
 
-		x_train_var = np.var(training_data.data)
+		# x_train_var = np.var(training_data.data)
+		x_train_var = 0.5
 
 	elif dataset == 'HandGestures':
 		if test:
-			test_data = load_hangestures(True)
+			test_data = load_hangestures(datat_type, batch_size, base, test=True)
 
 			sampler = dist.data_sampler(test_data, shuffle=True, distributed=distributed)
 
@@ -111,7 +108,10 @@ def load_data_and_data_loaders(dataset, batch_size, distributed=False, test=Fals
 								  sampler=sampler, 
 								  num_workers=2)
 
-		training_data, validation_data = load_hangestures()
+		training_data, validation_data = load_hangestures(data_type, batch_size, base)
+
+		if data_type == 'video':
+			batch_size = 1
 
 		training_sampler = dist.data_sampler(training_data, shuffle=True, distributed=distributed)
 

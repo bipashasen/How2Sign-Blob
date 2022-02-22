@@ -53,7 +53,7 @@ def main(args):
     model = model.to(device)
 
     if args.test:
-        loader = utils.load_data_and_data_loaders(args.dataset, args.batch_size, test=True)
+        loader = utils.load_data_and_data_loaders(args.dataset, args.data_type, args.batch_size, args.base, test=True)
 
         test(loader, model)
 
@@ -62,7 +62,7 @@ def main(args):
     """
     Load data and define batch data loaders
     """
-    items = utils.load_data_and_data_loaders(args.dataset, args.batch_size)
+    items = utils.load_data_and_data_loaders(args.dataset, args.data_type, args.batch_size, args.base)
     training_loader, validation_loader = items[2], items[3]
 
     x_train_var = items[4]
@@ -94,6 +94,9 @@ def train(args, training_loader, validation_loader, x_train_var, model, optimize
 
     for i in range(args.n_updates):
         (x, _) = next(iter(training_loader))
+        if args.data_type == 'video':
+            x = x.squeeze(0)
+
         x = x.to(device)
         optimizer.zero_grad()
 
@@ -120,6 +123,10 @@ def train(args, training_loader, validation_loader, x_train_var, model, optimize
             with torch.no_grad():
                 for vi in tqdm(range(10)):
                     (x, _) = next(iter(validation_loader))
+
+                    if args.data_type == 'video':
+                        x = x.squeeze(0)
+
                     x = x.to(device)
                     _, _, _ = model(x, verbose=verbose, save_idx=f'{save_idx}_{vi}', visual_folder=visual_folder)
 
@@ -239,6 +246,8 @@ if __name__ == "__main__":
     parser.add_argument("--save_at", type=int, default=100)
     parser.add_argument("--device_id", type=int, default=0)
     parser.add_argument("--dataset",  type=str, default='HandGestures')
+    parser.add_argument("--data_type",  type=str, default='video')
+    parser.add_argument("--base",  type=str, default='/scratch/bipasha31/WLASL-Processed/videos/{}/')
 
     parser.add_argument("--test",  action='store_true')
 

@@ -1,11 +1,15 @@
-import cv2
 import glob
+from skimage import io
 import numpy as np
 from torch.utils.data import Dataset
 from torchvision import transforms
 
 import random
+
 import json
+import cv2
+
+import torch
 
 class Blob2Full(Dataset):
     def __init__(self, mode, transform):
@@ -75,20 +79,22 @@ class Blob2Full(Dataset):
         return [x for x in files if not x in errors]
 
 class HandGesturesDataset(Dataset):
-    def __init__(self, mode):
+    def __init__(self, mode, data_type='video', batch_size=128, base='/scratch/bipasha31/How2Sign-Blobs/{}-set-rhands-images/'):
         self.mode = mode
 
-        base = '/scratch/bipasha31/How2Sign-Blobs/{}-set-rhands-images/'
+        self.data_type = data_type
+        extension = '_right_.avi' if data_type == 'video' else '.jpg'
+
+        self.batch_size = batch_size
 
         self.transforms = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        self.base = '{}/*.jpg'.format(base.format(mode))
+        self.base = f'{base.format(mode)}/*{extension}'
 
         self.data = glob.glob(self.base)
-        # self.make_dataset()
 
         print(f'{len(self.data)} datapoints loaded for {mode}.')
         
@@ -96,20 +102,39 @@ class HandGesturesDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
+        if self.data_type == 'video':
+            try:
+                return self.get_video_data(idx)
+            except:
+                return self.__getitem__(random.randint(0, self.__len__()))
+
+        return self.get_image_data(idx)
+
+    def get_video_data(self, idx):
+        vidcap = cv2.VideoCapture(self.data[idx])
+        success, frame = vidcap.read()
+
+        imgs = []
+
+        while success:
+            imgs.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+            success, frame = vidcap.read()
+
+        vidcap.release()
+
+        if len(imgs) > self.batch_size:
+            index = random.randint(0, len(imgs)-self.batch_size+1)
+            imgs = imgs[index:index+self.batch_size]
+
+        imgs = [self.transforms(img) for img in imgs]
+        shape = (-1,) + imgs[0].shape
+
+        imgs = torch.vstack(imgs).view(shape)
+        return imgs, self.data[idx]
+        
+    def get_image_data(self, idx):
         def read_image_from_path(path):
-            # return cv2.cvtColor(cv2.imread(path), cv2.COLOR_BGR2RGB)
-            return cv2.imread(path)
+           return io.imread(path)
 
         return self.transforms(read_image_from_path(self.data[idx])), self.data[idx]
-        # return self.data[idx]
-
-    def make_dataset(self):
-        files = glob.glob(self.base)
-
-        self.data = []
-        print_at = len(files)/500
-        for i, file in enumerate(files):
-            self.data.append(self.transforms(cv2.imread(file)))
-
-            if i % print_at == 0:
-                print(f'Loaded {i+1}/{len(files)} datapoints')
