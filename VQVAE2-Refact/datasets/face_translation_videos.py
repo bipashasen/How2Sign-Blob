@@ -2,7 +2,7 @@ import glob
 from skimage import io
 import numpy as np
 from torch.utils.data import Dataset
-from torchvision import transforms
+from torchvision import transforms, utils
 
 import random
 
@@ -10,12 +10,14 @@ import json
 
 import torch
 
-class FacialTransformsMultipleFramesDataset(Dataset):
+class FaceTransformsVideos(Dataset):
 	def __init__(self, mode, n):
 		self.mode = mode
 
 		self.H, self.W = 256, 256
 		self.n = n
+
+		self.max_len = 36
 
 		self.transformElements = [
 			transforms.ToPILImage(),
@@ -39,6 +41,14 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 		return len(self.data)
 
 	def __getitem__(self, idx):
+		''' 
+		return 
+		1. source - aligned image pasted on a black background. 
+		2. a mask denoting the convex hull of point 1. 
+		3. a mask denoting the background in the target image.
+		4. a perturbed image. 
+		5. the target image. 
+		'''
 		raw_images = [io.imread(p) for p in self.data[idx]]
 
 		new_images = []
@@ -53,18 +63,30 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 
 			self.transformElements[1] = transforms.Pad((padw, padh))
 
-			new_images.append(transforms.Compose(self.transformElements)(raw_image))
+			new_image = transforms.Compose(self.transformElements)(raw_image)
 
-		return torch.vstack(new_images).view(self.n*3, self.H, self.W)
+			new_images.append(new_image.unsqueeze(0))
 
+		out_images = [
+			torch.vstack([new_images[i+n] 
+				for n in range(self.n)]).view(-1, self.H, self.W).unsqueeze(0)
+			for i in range(len(new_images) - self.n + 1)]
 
-		''' return 
-		1. source - aligned image pasted on a black background. 
-		2. a mask denoting the convex hull of point 1. 
-		3. a mask denoting the background in the target image.
-		4. a perturbed image. 
-		5. the target image. 
-		'''
+		new_images = torch.vstack(new_images)
+
+		# utils.save_image(
+	 #        new_images,
+	 #        f'/home2/bipasha31/python_scripts/CurrentWork/samples/VQVAE2-FaceVideo/{random.randint(0, 100)}.jpg',
+	 #        nrow=new_images.shape[0],
+	 #        normalize=True,
+	 #        range=(-1, 1),
+	 #    )
+
+		out_images = torch.vstack(out_images)
+
+		mask = np.zeros_like(out_images)
+
+		return new_images, out_images, out_images, mask, mask
 
 	def create_dataset(self):
 		self.data = []
@@ -78,6 +100,4 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 			if len(files) < self.n:
 				continue
 
-			files = [[files[i+n] for n in range(self.n)] for i in range(len(files) - self.n)]
-
-			self.data.extend(files)
+			self.data.append(files[:self.max_len])

@@ -1,0 +1,1 @@
+cp /home2/bipasha31/python_scripts/CurrentWork/SLP/Video-VQVAE/*.py .

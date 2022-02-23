@@ -2,6 +2,8 @@ import argparse
 import sys
 import os
 
+import random
+
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader
@@ -15,49 +17,46 @@ from scheduler import CycleScheduler
 from utils import *
 from config import dataset, latent_loss_weight, sample_size
 
+from datasets.face_translation_videos import FaceTransformsVideos
+from models.video_vqvae import VideoVQVAE
+
 criterion = nn.MSELoss()
+
+n = 3
+latent_loss_weight = 0.25
+device = "cuda"
+
+validation_at = 2096
+
+sample_folder = '/home2/bipasha31/python_scripts/CurrentWork/samples/VQVAE2-FaceVideo'
+
+def save_image(data, saveas):
+    utils.save_image(
+        data,
+        saveas,
+        nrow=data.shape[0]//2,
+        normalize=True,
+        range=(-1, 1),
+    )
+
+def get_loaders_and_models():
+    train_dataset = FaceTransformsVideos('train', n)
+    val_dataset = FaceTransformsVideos('val', n)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=args.batch_size, 
+        num_workers=2)
+
+    model = VideoVQVAE(n).to(device)
+
+    return train_loader, val_loader, model
         
-def test(loader, model, device):
-    model.eval()
-    
-    if dist.is_primary():
-        loader = tqdm(loader, file=sys.stdout)
-
-    criterion = nn.MSELoss()
-
-    losses, recon_losses, latent_losses = [], [], []
-
-    for i, data in enumerate(tqdm(loader)):
-        img, S, ground_truth = process_data(data, device)
-
-        sample, ground_truth = img[:sample_size], ground_truth[:sample_size]
-
-        with torch.no_grad():
-            out, latent_loss = model(sample)
-
-            recon_loss = criterion(out, ground_truth)
-            latent_loss = latent_loss.mean()
-            loss = recon_loss + latent_loss_weight * latent_loss
-
-            losses.append(loss.item())
-            recon_losses.append(recon_loss.item())
-            latent_losses.append(latent_loss.item())
-
-            saveas = f"{sample_folder}/{i+1}.png"
-
-            if dist.is_primary():
-                save_image(torch.cat([sample, out], 0), saveas)
-
-                loader.set_description(
-                (
-                    f"mse: {recon_losses[-1]:.5f}; "
-                    f"latent: {latent_losses[-1]:.3f}; "
-                    f"loss: {losses[-1]:.5f}"
-                ))
-
-    if dist.is_primary():
-        print(f'Mean MSE: {recon_losses.mean()}, Mean Latent: {latent_losses.mean()}, Mean Loss: {losses.mean()}')
-
 def onlysample_save(img, epoch, i):
     sample = img[:sample_size]
 
@@ -68,9 +67,49 @@ def onlysample_save(img, epoch, i):
         torch.cat([sample, out], 0), 
         f"sample/{epoch + 1}_{i}.png",)
 
-def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at):
+def run_step(model, data, run_type='train'):
     def process_data(data):
         return [x.to(device) for x in data]
+
+    perturbed, source_aligned, target_original, aligned_mask, target_mask = process_data(data)
+
+    denoised_perturbed, latent_loss = model(perturbed)
+
+    assert source_aligned.shape == denoised_perturbed.shape
+
+    source_loss = criterion(aligned_mask * denoised_perturbed, source_aligned)
+
+    aligned_mask = torch.bitwise_not(aligned_mask.bool()).int()
+    
+    target_loss = criterion(aligned_mask * denoised_perturbed, source_aligned * target_original)
+
+    recon_loss = source_loss + target_loss
+
+    if run_type == 'train':
+        return recon_loss, latent_loss
+    else:
+        return perturbed, denoised_perturbed
+
+def validation(model, val_loader, device, epoch, i):
+    for val_i, data in enumerate(tqdm(val_loader)):
+        with torch.no_grad():
+            sample, out = run_step(model, data, 'val')
+
+        sample, out = sample[0], out[0]
+
+        H, W = sample.shape[-2], sample.shape[-1]
+
+        pre_out = out[:, -3:]
+        post_out = out[-1, 3:].unsqueeze(0).view(-1, 3, H, W)
+        out = torch.cat((pre_out, post_out), 0)
+
+        if val_i % (len(val_loader)//10) == 0: # save 10 results
+            save_image(
+                torch.cat([sample, out], 0), 
+                f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
+
+def train(model, loader, val_loader, optimizer, scheduler, epoch, validate_at):
+    loader = tqdm(loader, file=sys.stdout)
 
     for i, data in enumerate(loader):
         model.zero_grad()
@@ -79,15 +118,29 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
         pertubed: B x T x 3 x H x W
         everything else: B x T x 9 x H x W
         '''
-        perturbed, source_aligned, target_original, aligned_mask, target_mask = process_data(data)
+        recon_loss, latent_loss = run_step(model, data)
 
-        denoised_perturbed = model(perturbed)
+        loss = recon_loss + latent_loss_weight * latent_loss
 
-        assert source_aligned.shape == perturbed.shape
+        loss.backward()
+        optimizer.step()
+
+        loader.set_description(
+            (
+                f"epoch: {epoch + 1}; mse: {recon_loss.item():.5f}; "
+                f"latent: {latent_loss.item():.3f}; "
+                f"lr: {optimizer.param_groups[0]['lr']:.5f}"
+            )
+        )
+
+        if i % validate_at == 0:
+            model.eval()
+
+            validation(model, val_loader, device, epoch, i)
+
+            model.train()
 
 def main(args):
-    device = "cuda"
-
     default_transform = transforms.Compose(
         [
             transforms.ToPILImage(),
@@ -97,8 +150,7 @@ def main(args):
         ]
     )
 
-    loader, val_loader, model = get_loaders_and_models(
-        args, dataset, default_transform, device, test=args.test)
+    loader, val_loader, model = get_loaders_and_models()
 
     model = nn.parallel.DataParallel(model)
 
@@ -108,7 +160,8 @@ def main(args):
         model.module.load_state_dict(state_dict)
 
     if args.test:
-        test(loader, model, device)
+        # test(loader, model)
+        pass
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         
@@ -124,21 +177,13 @@ def main(args):
             )
 
         for i in range(args.epoch):
-            train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at)
+            train(model, loader, val_loader, optimizer, scheduler, i, args.validate_at)
 
             torch.save(model.state_dict(), f"checkpoint/vqvae_{str(i + 1).zfill(3)}.pt")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n_gpu", type=int, default=1)
-
-    port = (
-        2 ** 15
-        + 2 ** 14
-        + hash(os.getuid() if sys.platform != "win32" else 1) % 2 ** 14
-    )
-    parser.add_argument("--dist_url", default=f"tcp://127.0.0.1:{port}")
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--size", type=int, default=256)
     parser.add_argument("--epoch", type=int, default=560)
     parser.add_argument("--lr", type=float, default=3e-4)
