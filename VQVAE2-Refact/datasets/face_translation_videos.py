@@ -41,46 +41,26 @@ class FaceTransformsVideos(Dataset):
 		return len(self.data)
 
 	def __getitem__(self, idx):
-		''' 
-		return 
-		1. source - aligned image pasted on a black background. 
-		2. a mask denoting the convex hull of point 1. 
-		3. a mask denoting the background in the target image.
-		4. a perturbed image. 
-		5. the target image. 
-		'''
 		raw_images = [io.imread(p) for p in self.data[idx]]
 
-		new_images = []
+		h, w, _ = raw_images[0].shape
 
-		for raw_image in raw_images:
-			h, w, _ = raw_image.shape
+		if h > w:
+			padw, padh = (h-w)//2, 0
+		else:
+			padw, padh = 0, (w-h)//2
 
-			if h > w:
-				padw, padh = (h-w)//2, 0
-			else:
-				padw, padh = 0, (w-h)//2
+		self.transformElements[1] = transforms.Pad((padw, padh))
 
-			self.transformElements[1] = transforms.Pad((padw, padh))
+		c_transforms = transforms.Compose(self.transformElements)
 
-			new_image = transforms.Compose(self.transformElements)(raw_image)
+		new_images = [c_transforms(x).unsqueeze(0) for x in raw_images]
 
-			new_images.append(new_image.unsqueeze(0))
-
-		out_images = [
-			torch.vstack([new_images[i+n] 
-				for n in range(self.n)]).view(-1, self.H, self.W).unsqueeze(0)
-			for i in range(len(new_images) - self.n + 1)]
+		out_images = [torch.vstack(new_images[i:i+self.n])
+			.view(-1, self.H, self.W).unsqueeze(0)
+				for i in range(len(new_images) - self.n + 1)]
 
 		new_images = torch.vstack(new_images)
-
-		# utils.save_image(
-	 #        new_images,
-	 #        f'/home2/bipasha31/python_scripts/CurrentWork/samples/VQVAE2-FaceVideo/{random.randint(0, 100)}.jpg',
-	 #        nrow=new_images.shape[0],
-	 #        normalize=True,
-	 #        range=(-1, 1),
-	 #    )
 
 		out_images = torch.vstack(out_images)
 

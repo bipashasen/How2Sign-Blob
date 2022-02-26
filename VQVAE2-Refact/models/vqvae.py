@@ -200,23 +200,9 @@ class VQVAE(nn.Module):
             stride=4,
         )
 
-    def forward(self, input, save_idx=None, visual_folder=None):
+    def forward(self, input):
         quant_t, quant_b, diff, _, _ = self.encode(input)
         dec = self.decode(quant_t, quant_b)
-
-        if save_idx is not None:
-            def save_img(img, save_idx, i, dtype):
-                img = (img.detach().cpu() + 0.5).numpy()
-                img = np.transpose(img, (1,2,0))
-                fig = plt.imshow(img, interpolation='nearest')
-                fig.axes.get_xaxis().set_visible(False)
-                fig.axes.get_yaxis().set_visible(False)
-                plt.savefig('{}/{}_{}_{}.jpg'.\
-                    format(visual_folder, save_idx, i, dtype), bbox_inches='tight')
-
-            for i in range(min(dec.shape[0], 32)):
-                save_img(input[i], save_idx, i, 'original')
-                save_img(dec[i], save_idx, i, 'reconstructed')
 
         return dec, diff
 
