@@ -91,13 +91,13 @@ class VQModel(pl.LightningModule):
 
     def save_image(self, x, xrec, idx, rtype):
         saveas = f'/home2/bipasha31/python_scripts/CurrentWork/samples/{self.save_root}/{idx}_{rtype}.jpg'
-        utils.save_image(
-            torch.cat((x, xrec), axis=0),
-            saveas,
-            nrow=x.shape[0],
-            normalize=True,
-            range=(-1, 1),
-        )
+        # utils.save_image(
+        #     torch.cat((x, xrec), axis=0),
+        #     saveas,
+        #     nrow=x.shape[0],
+        #     normalize=True,
+        #     range=(-1, 1),
+        # )
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         x = self.get_input(batch, self.image_key)

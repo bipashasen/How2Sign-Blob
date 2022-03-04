@@ -14,6 +14,8 @@ from skimage import transform as tf
 
 from scipy.ndimage import laplace
 
+target_without_face_apply = True
+
 def resize_frame(frame, resize_dim=256):
     h, w, _ = frame.shape
 
@@ -37,7 +39,7 @@ def readPoints(nparray) :
     return points
 
 def generate_convex_hull(img, points):
-    # points = np.load(landmark_path, allow_pickle=True)['mask'].astype(np.uint8)
+    # points = np.load(landmark_path, allow_pickle=True)['landmark'].astype(np.uint8)
     points = readPoints(points)
 
     hull = []
@@ -78,7 +80,6 @@ def poisson_blend(target_img, src_img, mask_img, iter: int = 1024):
     for _ in range(iter):
         target_img = target_img + 0.25 * mask_img * laplace(target_img - src_img)
     return target_img.clip(0, 1)
-
 
 # -- Face Transformation
 def warp_img(src, dst, img, std_size):
@@ -146,9 +147,9 @@ def generate_warped_image(source_landmark_npz, target_landmark_npz,
     source_image = resize_frame(io.imread(source_image_path))
     target_image = resize_frame(io.imread(target_image_path))
     
-    source_landmarks = np.load(source_landmark_npz)['mask']
+    source_landmarks = np.load(source_landmark_npz)['landmark']
 
-    target_landmarks = np.load(target_landmark_npz)['mask']
+    target_landmarks = np.load(target_landmark_npz)['landmark']
     
     if require_full_mask:
         source_convex_mask = generate_convex_hull(source_image, source_landmarks)
@@ -168,20 +169,29 @@ def generate_warped_image(source_landmark_npz, target_landmark_npz,
     
     source_convex_mask_transformed = apply_transform(transformation, source_convex_mask, std_size)
     source_convex_mask_no_enlargement_transformed = apply_transform(transformation, source_convex_mask_no_enlargement, std_size)
+    source_image_transformed = apply_transform(transformation, source_image, std_size)
 
     target_convex_mask = np.invert(generate_convex_hull(target_image, target_landmarks))
     # target_background = apply_mask(target_convex_mask, target_image)
     
-    # generate the perturbed image 
+    target_convex_mask_without_jaw = generate_convex_hull(target_image, target_landmarks[17:])
+    target_convex_mask_without_jaw = enlarge_mask(target_convex_mask_without_jaw, enlargement=10)
+    
+    target_convex_mask_without_jaw = np.invert(target_convex_mask_without_jaw)
+    target_without_face_features = apply_mask(target_convex_mask_without_jaw, target_image)
+    target_without_face = apply_mask(target_convex_mask, target_image)
+
     if poisson_blend_required:
         combined_image = poisson_blend(target_image/255., source_image/255., source_face_transformed/255.)
     else:
-        combined_image = combine_images(target_image, source_face_transformed)
-    
+        if target_without_face_apply:
+            combined_image = combine_images(target_without_face, source_face_transformed)
+        else:
+            combined_image = combine_images(target_image, source_face_transformed)
     # apply the transformed convex mask to the target face for sanity
     # target_masked = apply_mask(source_convex_mask_transformed, target_image)
     
-    return source_face_transformed, source_convex_mask_transformed, source_convex_mask_no_enlargement, target_image, target_convex_mask, combined_image
+    return source_face_transformed, source_convex_mask_transformed, source_image_transformed, source_convex_mask_no_enlargement, target_image, target_convex_mask, combined_image, target_without_face_features
 
 # code to generate the alignment between the source and the target image 
 def generate_aligned_image(source_landmark_npz, target_landmark_npz, 
@@ -192,10 +202,10 @@ def generate_aligned_image(source_landmark_npz, target_landmark_npz,
     source_image = resize_frame(io.imread(source_image_path))
     target_image = resize_frame(io.imread(target_image_path))
     
-    source_landmarks = np.load(source_landmark_npz)['mask']
+    source_landmarks = np.load(source_landmark_npz)['landmark']
     source_rotation, source_center, source_distance = compute_rotation(source_landmarks)
 
-    target_landmarks = np.load(target_landmark_npz)['mask']
+    target_landmarks = np.load(target_landmark_npz)['landmark']
     target_rotation, target_center, target_distance = compute_rotation(target_landmarks)
 
     # rotation of the source conditioned on the source orientation 
@@ -224,14 +234,21 @@ def generate_aligned_image(source_landmark_npz, target_landmark_npz,
     source_face_segmented = apply_mask(source_convex_mask, source_image)
     source_face_transformed = cv2.warpAffine(source_face_segmented, rotate_matrix, (width, height), flags=cv2.INTER_CUBIC)
     source_convex_mask_transformed = cv2.warpAffine(source_convex_mask, rotate_matrix, (width, height), flags=cv2.INTER_CUBIC)
-    
+    source_image_transformed = cv2.warpAffine(source_image, rotate_matrix, (width, height), flags=cv2.INTER_CUBIC)
+
     # used for computing the target background
     target_convex_mask = np.invert(generate_convex_hull(target_image, target_landmarks))
     # target_background = ((target_convex_mask/255.)*target_image).astype(np.uint8)
+    target_convex_mask_without_jaw = np.invert(generate_convex_hull(target_image, target_landmarks[17:]))
+    target_without_face_features = apply_mask(target_convex_mask_without_jaw, target_image)
+    target_without_face = apply_mask(target_convex_mask, target_image)
 
     if poisson_blend_required:
         combined_image = poisson_blend(target_image/255., source_image/255., source_face_transformed/255.)
     else:
-        combined_image = combine_images(target_image, source_face_transformed)
+        if target_without_face_apply:
+            combined_image = combine_images(target_without_face, source_face_transformed)
+        else:
+            combined_image = combine_images(target_image, source_face_transformed)
 
-    return source_face_transformed, source_convex_mask_transformed, target_image, target_convex_mask, combined_image
+    return source_face_transformed, source_convex_mask_transformed, source_image_transformed, target_image, target_convex_mask, combined_image

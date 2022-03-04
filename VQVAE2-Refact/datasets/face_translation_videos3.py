@@ -19,22 +19,35 @@ from torchvision import transforms
 
 from datasets.face_translation_videos3_utils import *
 
+landmark_name = '_landmarks.npz'
+bad_mp4s = 'bad_mp4s.json'
+valid_folders = '/scratch/bipasha31/processed_vlog_dataset_copy/' + 'valid_folders.json'
+
 def get_good_videos(video_dir):
     def get_video_and_segment(x):
-        return '/'.join(x.rsplit('/', 2)[-2:])
+        return '/'.join(x.split('/')[-4:])
 
-    video_segments = glob(video_dir + '/*.mp4')
-    with open('bad_mp4s.json') as r:
-        bad_video_segments = json.load(r)
+    video_segments = glob(video_dir + '/*/*/*.mp4')
 
-    with open('valid_folders.json') as r:
+    if os.path.exists(bad_mp4s):
+        with open(bad_mp4s) as r:
+            bad_video_segments = json.load(r)
+
+    else:
+        bad_video_segments = []
+
+    with open(valid_folders) as r:
         valid_video_segments = json.load(r)
-        valid_video_segments = [x+'.mp4' for x in valid_video_segments]
+        valid_video_segments = [x for x in valid_video_segments]
 
     video_segments = [
         x for x in video_segments 
             if not get_video_and_segment(x) in bad_video_segments
                 and get_video_and_segment(x) in valid_video_segments]
+
+    video_segments = [
+        x for x in video_segments
+            if len(glob(f'{x.split(".")[0]}/*.jpg')) > 3]
     
     return video_segments
 
@@ -80,6 +93,7 @@ def get_video_frames_perturbed(video_dir, batch_size):
  
     source_faces = list()
     source_background_masks = list()
+    source_transformed_images = list()
     source_background_masks_no_enlargement = list()
     target_images = list()
     target_face_masks = list()
@@ -90,29 +104,31 @@ def get_video_frames_perturbed(video_dir, batch_size):
         source_image_path = source_frames_sampled[i]
         target_image_path = target_frames_sampled[i]
  
-        source_landmark_npz = osp.join(source_image_path.rsplit('.', 1)[0]) + '_landmarks_compressed.npz'
-        target_landmark_npz = osp.join(target_image_path.rsplit('.', 1)[0]) + '_landmarks_compressed.npz'
+        source_landmark_npz = osp.join(source_image_path.rsplit('.', 1)[0]) + landmark_name
+        target_landmark_npz = osp.join(target_image_path.rsplit('.', 1)[0]) + landmark_name
         
         # read the data and apply framewise transformation
-        source_face_transformed, source_background_mask_transformed, source_background_mask_no_enlargement_transformed, \
+        source_face_transformed, source_background_mask_transformed, source_image_transformed, source_background_mask_no_enlargement_transformed, \
         target_image, target_face_mask, perturbed_image = \
             generate_warped_image(source_landmark_npz, target_landmark_npz, 
                 source_image_path, target_image_path)
  
         source_faces.append(source_face_transformed)
         source_background_masks.append(source_background_mask_transformed)
+        source_transformed_images.append(source_image_transformed)
         source_background_masks_no_enlargement.append(source_background_mask_no_enlargement_transformed)
         target_images.append(target_image)
         target_face_masks.append(target_face_mask)
         perturbed_images.append(perturbed_image)
  
-    return source_faces, source_background_masks, source_background_masks_no_enlargement, target_images, target_face_masks, perturbed_images
+    return source_faces, source_background_masks, source_transformed_images, source_background_masks_no_enlargement, target_images, target_face_masks, perturbed_images
 
 class FaceTransformsVideos(Dataset):
     def __init__(self, mode, n, max_frame_len):
         self.mode = mode
 
-        base = '/ssd_scratch/cvit/bipasha31/processed_video_talkingheads/*'
+        # base = '/ssd_scratch/cvit/bipasha31/processed_video_talkingheads/*'
+        base = '/scratch/bipasha31/processed_vlog_dataset_copy/*'
 
         self.H, self.W = 256, 256
         self.n = n
@@ -124,13 +140,10 @@ class FaceTransformsVideos(Dataset):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        with open('valid_videos.txt') as r:
-            valid_videos = r.read().splitlines()
-
         datapoints = sorted(glob(base))
-        datapoints = [x for x in datapoints if os.path.basename(x) in valid_videos]
+        datapoints = [x for x in datapoints if os.path.isdir(x)]
 
-        train_split = int(0.9*len(datapoints))
+        # train_split = int(0.9*len(datapoints))
 
         # self.videos = datapoints[:train_split]\
         #     if mode == 'train' else datapoints[train_split:]
@@ -145,7 +158,7 @@ class FaceTransformsVideos(Dataset):
     def __getitem__(self, index):
         video_dir = self.videos[index]
         
-        source_faces, source_background_masks, source_background_masks_no_enlargement, target_images, \
+        source_faces, source_background_masks, source_transformed_images, source_background_masks_no_enlargement, target_images, \
             target_face_masks, perturbed_images = \
                 get_video_frames_perturbed(video_dir, self.max_len)\
 
@@ -153,13 +166,14 @@ class FaceTransformsVideos(Dataset):
         # perturbed images, source faces, target images
         perturbed_images = self.load_images(perturbed_images, transform_dim=False)
         source_faces = self.load_images(source_faces)
+        source_transformed_images = self.load_images(source_transformed_images)
         target_images = self.load_images(target_images)
         
         source_background_masks = self.transform_dimensions(source_background_masks, vstack=True)
         source_background_masks_no_enlargement = self.transform_dimensions(source_background_masks_no_enlargement, vstack=True)
         target_face_masks = self.transform_dimensions(target_face_masks, vstack=True)
 
-        return perturbed_images, source_faces, target_images, source_background_masks/255, source_background_masks_no_enlargement/255, target_face_masks/255
+        return perturbed_images, source_faces, source_transformed_images, target_images, source_background_masks/255, source_background_masks_no_enlargement/255, target_face_masks/255
  
     def load_images(self, images, transform_dim=True):
         images = [self.transform(p).unsqueeze(0) for p in images]

@@ -14,14 +14,26 @@ from scheduler import CycleScheduler
 import distributed as dist
 
 from utils import *
-from config import dataset, latent_loss_weight, sample_size
+from config import DATASET, LATENT_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
 
 criterion = nn.MSELoss()
 
-def run_step(model, data, device, run='train'):
-    img, S, ground_truth = process_data(data, device)
+global_step = 0
 
-    out, latent_loss = model(ground_truth)
+sample_size = SAMPLE_SIZE_FOR_VISUALIZATION
+
+dataset = DATASET
+
+sample_folder = '/home2/bipasha31/python_scripts/CurrentWork/samples/{}'
+
+checkpoint_dir = 'checkpoint_{}'
+
+def run_step(model, data, device, run='train'):
+    img, S, ground_truth = process_data(data, device, dataset)
+
+    out, latent_loss = model(img)
+
+    out = out[:, :3]
     
     recon_loss = criterion(out, ground_truth)
     latent_loss = latent_loss.mean()
@@ -29,58 +41,7 @@ def run_step(model, data, device, run='train'):
     if run == 'train':
         return recon_loss, latent_loss, S
     else:
-        return img, out
-        
-def test(loader, model, device):
-    model.eval()
-    
-    if dist.is_primary():
-        loader = tqdm(loader, file=sys.stdout)
-
-    criterion = nn.MSELoss()
-
-    losses, recon_losses, latent_losses = [], [], []
-
-    for i, data in enumerate(tqdm(loader)):
-        img, S, ground_truth = process_data(data, device)
-
-        sample, ground_truth = img[:sample_size], ground_truth[:sample_size]
-
-        with torch.no_grad():
-            out, latent_loss = model(sample)
-
-            recon_loss = criterion(out, ground_truth)
-            latent_loss = latent_loss.mean()
-            loss = recon_loss + latent_loss_weight * latent_loss
-
-            losses.append(loss.item())
-            recon_losses.append(recon_loss.item())
-            latent_losses.append(latent_loss.item())
-
-            saveas = f"{sample_folder}/{i+1}.png"
-
-            if dist.is_primary():
-                save_image(torch.cat([sample, out], 0), saveas)
-
-                loader.set_description(
-                (
-                    f"mse: {recon_losses[-1]:.5f}; "
-                    f"latent: {latent_losses[-1]:.3f}; "
-                    f"loss: {losses[-1]:.5f}"
-                ))
-
-    if dist.is_primary():
-        print(f'Mean MSE: {recon_losses.mean()}, Mean Latent: {latent_losses.mean()}, Mean Loss: {losses.mean()}')
-
-def onlysample_save(img, epoch, i):
-    sample = img[:sample_size]
-
-    with torch.no_grad():
-        out, _ = model(sample)
-
-    save_image(
-        torch.cat([sample, out], 0), 
-        f"sample/{epoch + 1}_{i}.png",)
+        return ground_truth, img, out
 
 def blob2full_validation(model, img):
     face, rhand, lhand = img
@@ -98,14 +59,41 @@ def blob2full_validation(model, img):
     save_image(torch.cat([face, rhand, lhand, out, gt], 0), 
         f"sample/{epoch + 1}_{i}.png")
 
-def base_validation(model, val_loader, device, epoch, i):
+def jitter_validation(model, val_loader, device, epoch, i, run_type):
+    for i, data in enumerate(tqdm(val_loader)):
+        with torch.no_grad():
+            source_images, input, prediction = run_step(model, data, device, run='val')
+            
+        source_hulls = input[:, :3]
+        background = input[:, 3:]
+
+        saves = {
+            'source': source_hulls,
+            'background': background,
+            'prediction': prediction,
+            'source_images': source_images
+        }
+
+        if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+            def denormalize(x):
+                return (x.clamp(min=-1.0, max=1.0) + 1)/2
+
+            for name in saves:
+                saveas = f"{sample_folder}/{epoch + 1}_{global_step}_{i}_{name}.mp4"
+                frames = saves[name].detach().cpu()
+                frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
+
+                os.makedirs(sample_folder, exist_ok=True)
+                save_frames_as_video(frames, saveas, fps=25)
+
+def base_validation(model, val_loader, device, epoch, i, run_type):
     def get_proper_shape(x):
         shape = x.shape
         return x.view(shape[0], -1, 3, shape[2], shape[3]).view(-1, 3, shape[2], shape[3])
 
     for val_i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            sample, out = run_step(model, data, device, 'val')
+            sample, _, out = run_step(model, data, device, 'val')
 
         if sample.shape[1] != 3:
             sample = get_proper_shape(sample[:sample_size])
@@ -116,9 +104,11 @@ def base_validation(model, val_loader, device, epoch, i):
                 torch.cat([sample[:3*3], out[:3*3]], 0), 
                 f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
 
-def validation(model, val_loader, device, epoch, i):
-    
-    base_validation(model, val_loader, device, epoch, i)
+def validation(model, val_loader, device, epoch, i, run_type='train'):
+    if dataset == 6:
+        jitter_validation(model, val_loader, device, epoch, i, run_type)
+    else:
+        base_validation(model, val_loader, device, epoch, i, run_type)
 
 def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at):
     if dist.is_primary():
@@ -132,7 +122,7 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
 
         recon_loss, latent_loss, S = run_step(model, data, device)
 
-        loss = recon_loss + latent_loss_weight * latent_loss
+        loss = recon_loss + LATENT_LOSS_WEIGHT * latent_loss
 
         loss.backward()
 
@@ -140,6 +130,10 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
             scheduler.step()
 
         optimizer.step()
+
+        global global_step
+
+        global_step += 1
 
         part_mse_sum = recon_loss.item() * S
         part_mse_n = S
@@ -166,6 +160,11 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
             model.eval()
 
             validation(model, val_loader, device, epoch, i)
+
+            if dist.is_primary():
+                os.makedirs(checkpoint_dir)
+
+                torch.save(model.state_dict(), f"{checkpoint_dir}/vqvae_{epoch+1}_{str(i + 1).zfill(3)}.pt")
 
             model.train()
 
@@ -196,10 +195,14 @@ def main(args):
     if args.ckpt:
         state_dict = torch.load(args.ckpt)
         state_dict = { k.replace('module.', ''): v for k, v in state_dict.items() }  
-        model.module.load_state_dict(state_dict)
+        try:
+            model.module.load_state_dict(state_dict)
+        except:
+            model.load_state_dict(state_dict)
 
     if args.test:
-        test(loader, model, device)
+        # test(loader, model, device)
+        validation(model, val_loader, device, 0, 0, 'val')
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         
@@ -217,9 +220,6 @@ def main(args):
         for i in range(args.epoch):
             train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at)
 
-            if dist.is_primary():
-                torch.save(model.state_dict(), f"checkpoint/vqvae_{str(i + 1).zfill(3)}.pt")
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_gpu", type=int, default=1)
@@ -235,9 +235,17 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", type=int, default=560)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--sched", type=str)
-    parser.add_argument("--validate_at", type=int, default=4096)
+    parser.add_argument("--checkpoint_suffix", type=str, default='')
+    parser.add_argument("--validate_at", type=int, default=512)
     parser.add_argument("--ckpt", required=False)
     parser.add_argument("--test", action='store_true', required=False)
+    parser.add_argument("--gray", action='store_true', required=False)
+    parser.add_argument("--colorjit", type=str, default='')
+    parser.add_argument("--crossid", action='store_true', required=False)
+
+    sample_folder = sample_folder.format(args.checkpoint_suffix)
+
+    checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     args = parser.parse_args()
 

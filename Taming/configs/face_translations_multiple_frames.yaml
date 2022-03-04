@@ -2,7 +2,7 @@ model:
   base_learning_rate: 4.5e-6
   target: taming.models.vqgan.VQModel
   params:
-    save_image_every: 128
+    save_image_every: 4096
     save_root: 'VQGAN-FaceTranslationMultipleFramesDebug'
     embed_dim: 256
     n_embed: 1024

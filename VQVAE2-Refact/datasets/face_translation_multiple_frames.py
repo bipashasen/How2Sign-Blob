@@ -25,11 +25,13 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 			transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 		]
 
-		self.base = '/ssd_scratch/cvit/bipasha31/processed_image_frames/*/*'
+		# self.base = '/ssd_scratch/cvit/bipasha31/processed_image_frames/*/*'
+		self.base = '/scratch/bipasha31/processed_vlog_dataset_copy/*/*/*/*'
 
-		datapoints = sorted(glob.glob(self.base))
+		datapoints = glob.glob(self.base)
+		random.shuffle(datapoints)
 
-		train_split = int(0.9*len(datapoints))
+		train_split = int(0.95*len(datapoints))
 
 		self.folders = datapoints[:train_split] if mode == 'train' else datapoints[train_split:]
 
@@ -69,6 +71,6 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 			if len(files) < self.n:
 				continue
 
-			files = [[files[i+n] for n in range(self.n)] for i in range(len(files) - self.n)]
+			files = [files[i:i+self.n] for i in range(len(files) - self.n)]
 
 			self.data.extend(files)

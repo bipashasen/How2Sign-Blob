@@ -100,7 +100,6 @@ class ResBlock(nn.Module):
 
         return out
 
-
 class Encoder(nn.Module):
     def __init__(self, in_channel, channel, n_res_block, n_res_channel, stride):
         super().__init__()
