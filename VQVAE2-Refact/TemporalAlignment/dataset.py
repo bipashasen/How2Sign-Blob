@@ -159,12 +159,15 @@ class TemporalAlignmentDataset(Dataset):
         mode, 
         max_frame_len, 
         case='jitter', 
-        color_jitter_type=False,
+        color_jitter_type='',
         cross_identity_required=False,
         grayscale_required=False):
         self.mode = mode
 
         self.colorJitterType = color_jitter_type
+
+        if cross_identity_required:
+            self.colorJitterType = ''
 
         self.H, self.W = 256, 256
 
@@ -210,13 +213,16 @@ class TemporalAlignmentDataset(Dataset):
         return len(self.videos)
  
     def __getitem__(self, index):
-        if self.case == 'jitter':
-            if self.cross_identity_required:
-                return self.get_item_jitter_network_cross_identity(index)
+        try:
+            if self.case == 'jitter':
+                if self.cross_identity_required:
+                    return self.get_item_jitter_network_cross_identity(index)
+                else:
+                    return self.get_item_jitter_network(index)
             else:
-                return self.get_item_jitter_network(index)
-        else:
-            return self.get_item_alignment_network(index)
+                return self.get_item_alignment_network(index)
+        except:
+            return self.__getitem__(random.randint(0, self.__len__()-1))
 
     def get_item_jitter_network_cross_identity(self, index):
         source_video_dir = self.videos[index]
@@ -235,8 +241,8 @@ class TemporalAlignmentDataset(Dataset):
     def get_item_jitter_network(self, index):
         video_dir = self.videos[index]
 
-        _, target, source_images, source, _, background = get_video_frames_perturbed(
-            video_dir, self.max_len)
+        _, target, source_images, source, _, background =\
+            get_video_frames_perturbed(video_dir, self.max_len)
 
         if len(source) == 0\
             or len(target) == 0\
@@ -246,7 +252,7 @@ class TemporalAlignmentDataset(Dataset):
             print(f'Source: {len(source)}, Target: {len(target)}, Background: {len(background)}, SourceImages: {len(source_images)}')
             assert False
 
-        source = self.load_images_transformed(source, self.colorJitterRequired)
+        source = self.get_source_image_hull(source)
         target = self.load_images_transformed(target)
         background = self.load_images_transformed(background)
         source_images = self.load_images_transformed(source_images)
@@ -269,24 +275,29 @@ class TemporalAlignmentDataset(Dataset):
 
         source_images = self.load_images_transformed(source_images)
 
+        source_face_perturbeds = self.get_source_image_hull(source_face_perturbeds)
+
+        input = torch.cat([ source_face_perturbeds, source_backgrounds], axis=1)
+        
+        return input, source_images, gt_transformations
+
+    def get_source_image_hull(self, source_face_perturbeds):
         if self.colorJitterType != '':
+            elements = self.colorJitterTransformationElements
+
             if self.colorJitterType == 'const':
                 brightness = random.uniform(1.0,1.5)
                 saturation = random.uniform(1.0,1.5)
 
-                self.colorJitterTransformationElements[1] = transforms.ColorJitter(
-                    brightness=brightness, contrast=(1), saturation=saturation),
+                elements[1] = transforms.ColorJitter(
+                    brightness=brightness, contrast=(1), saturation=saturation)
 
-            color_jitter_transform = transforms.Compose(self.colorJitterTransformationElements)
+            color_jitter_transform = transforms.Compose(elements)
 
-            source_face_perturbeds = self.load_images_transformed(
+            return self.load_images_transformed(
                 source_face_perturbeds, jitter=color_jitter_transform)
         else:
-            source_face_perturbeds = self.load_images_transformed(source_face_perturbeds)
-
-        input = torch.cat([source_face_perturbeds, source_backgrounds], axis=1)
-        
-        return input, source_images, gt_transformations
+            return self.load_images_transformed(source_face_perturbeds)
 
     def load_images_transformed(self, images, jitter=None):
         transform_function = jitter\

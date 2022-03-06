@@ -48,18 +48,19 @@ def process_data(data, device, dataset):
     if dataset == 6:
         source, target, background, source_images = data
         
-        input = torch.cat([source, background], axis=2).squeeze(0).to(device)
+        img = torch.cat([source, background], axis=2).squeeze(0).to(device)
         source = source.squeeze(0)
-        source_images = source_images.squeeze(0).to(device)
+        ground_truth = source_images.squeeze(0).to(device)
 
-        return input, source.shape[0], source_images
+        S = source.shape[0]
+
     elif dataset == 2: 
         assert len(data) == 4
-        case blob2full
         face, rhand, lhand, ground_truth = [x.to(device) for x in data]
         img = face, rhand, lhand
 
         S = face.shape[0]
+
     else:
         if len(data) == 2: # case hand2gestures
             img, label = data
@@ -83,8 +84,8 @@ def get_facetranslation_concatenated_on_different_channels(args, device):
         color_jitter_type=args.colorjit,
         grayscale_required=args.gray)
 
-    val_dataset = TemporalAlignmentDataset('val', 
-        160, 'train', 96, 
+    val_dataset = TemporalAlignmentDataset(
+        'val', 160, 
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
         grayscale_required=args.gray)

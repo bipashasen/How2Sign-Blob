@@ -162,7 +162,7 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
             validation(model, val_loader, device, epoch, i)
 
             if dist.is_primary():
-                os.makedirs(checkpoint_dir)
+                os.makedirs(checkpoint_dir, exist_ok=True)
 
                 torch.save(model.state_dict(), f"{checkpoint_dir}/vqvae_{epoch+1}_{str(i + 1).zfill(3)}.pt")
 
@@ -240,16 +240,16 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", required=False)
     parser.add_argument("--test", action='store_true', required=False)
     parser.add_argument("--gray", action='store_true', required=False)
-    parser.add_argument("--colorjit", type=str, default='')
+    parser.add_argument("--colorjit", type=str, default='', help='const or random or empty')
     parser.add_argument("--crossid", action='store_true', required=False)
-
-    sample_folder = sample_folder.format(args.checkpoint_suffix)
-
-    checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     args = parser.parse_args()
 
     args.n_gpu = torch.cuda.device_count()
+
+    sample_folder = sample_folder.format(args.checkpoint_suffix)
+
+    checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     print(args, flush=True)
 
