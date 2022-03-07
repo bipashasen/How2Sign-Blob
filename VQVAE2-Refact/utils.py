@@ -58,8 +58,29 @@ def get_facetranslation_loaders_and_model(args, device):
 
     model = VQVAE(in_channel=3*3).to(device)
 
-    train_dataset = FacialTransformsMultipleFramesDataset('train', 3)
-    val_dataset = FacialTransformsMultipleFramesDataset('val', 3)
+    train_dataset = FacialTransformsMultipleFramesDataset(mode='train')
+    val_dataset = FacialTransformsMultipleFramesDataset(mode='val')
+
+    sampler = dist.data_sampler(train_dataset, shuffle=True, distributed=args.distributed)
+    train_loader = DataLoader(
+        train_dataset, batch_size=args.batch_size // args.n_gpu, sampler=sampler, num_workers=2
+    )
+
+    sampler = dist.data_sampler(val_dataset, shuffle=True, distributed=args.distributed)
+    val_loader = DataLoader(
+        val_dataset, batch_size=args.batch_size // args.n_gpu, sampler=sampler, num_workers=2
+    )
+
+    return train_loader, val_loader, model
+
+def get_facetranslation_loaders_and_model_single_frame(args, device):
+    from datasets.face_translation_single_frame_perturbed import FacialTransformsSingleFrameDatasetPerturbed
+
+    model = VQVAE(in_channel=3).to(device)
+
+    # defines the training mode and the number of channels 
+    train_dataset = FacialTransformsSingleFrameDatasetPerturbed('train', 1)
+    val_dataset = FacialTransformsSingleFrameDatasetPerturbed('val', 1)
 
     sampler = dist.data_sampler(train_dataset, shuffle=True, distributed=args.distributed)
     train_loader = DataLoader(
@@ -122,5 +143,6 @@ def get_loaders_and_models(args, dataset, default_transform, device, test=False)
         pass 
     elif dataset == 4:
         return get_facetranslation_loaders_and_model(args, device) 
-
+    elif dataset == 5:
+        return get_facetranslation_loaders_and_model_single_frame(args, device)
 
