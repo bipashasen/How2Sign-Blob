@@ -78,14 +78,16 @@ def get_facetranslation_concatenated_on_different_channels(args, device):
     from TemporalAlignment.dataset import TemporalAlignmentDataset
 
     model = VQVAE(in_channel=3*2).to(device)
+    train_size, test_size = 96, 160 # channel-wise-vqvae
+    train_size, test_size = 78, 140 # channel-wise-jitter
 
     train_dataset = TemporalAlignmentDataset(
-        'train', 96, 
+        'train', train_size, 
         color_jitter_type=args.colorjit,
         grayscale_required=args.gray)
 
     val_dataset = TemporalAlignmentDataset(
-        'val', 160, 
+        'val', test_size, 
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
         grayscale_required=args.gray)

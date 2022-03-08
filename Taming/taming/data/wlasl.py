@@ -11,19 +11,22 @@ import json
 import torch
 
 class WLASLDataset(Dataset):
-    def __init__(self, mode):
+    def __init__(self, mode, datalen_percent):
         self.mode = mode
 
         self.transforms = transforms.Compose([
             transforms.ToPILImage(),
+            transforms.Grayscale(),
             transforms.Resize((256, 256)),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            transforms.Normalize(0.5, 0.5)
         ])
 
-        self.base = '/ssd_scratch/cvit/bipasha31/WLASL-Processed/videos/{}-set-images/*_right_*.jpg'.format(mode)
+        self.base = '/scratch/bipasha31/WLASL-Processed/videos/{}-set-images/*_right_*.jpg'.format(mode)
 
         self.data = glob.glob(self.base)
+
+        print(f'Loaded {int(self.__len__()*datalen_percent)} datapoints for {self.mode} mode.')
         
     def __len__(self):
         return len(self.data)

@@ -249,10 +249,10 @@ if __name__ == "__main__":
     model = instantiate_from_config(config.model)
 
     trainer = Trainer(
-        limit_train_batches=config.data.data_len,
+        limit_train_batches=config.data.params.train.params.datalen_percent,
         gpus=lightning_config.trainer.gpus, 
         strategy="ddp",
-        limit_val_batches=config.data.data_len)
+        limit_val_batches=config.data.params.validation.params.datalen_percent)
 
     # data
     data = instantiate_from_config(config.data)
@@ -265,7 +265,10 @@ if __name__ == "__main__":
     # configure learning rate
     bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
     if not cpu:
-        ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
+        try:
+            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
+        except:
+            ngpu = 1
     else:
         ngpu = 1
     # accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches or 1
@@ -291,6 +294,8 @@ if __name__ == "__main__":
     import signal
     signal.signal(signal.SIGUSR1, melk)
     signal.signal(signal.SIGUSR2, divein)
+
+    print(opt.resume_from_checkpoint)
 
     # run
     if opt.train:

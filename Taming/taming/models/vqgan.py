@@ -89,15 +89,15 @@ class VQModel(pl.LightningModule):
         x = x.to(memory_format=torch.contiguous_format)
         return x.float()
 
-    def save_image(self, x, xrec, idx, rtype):
-        saveas = f'/home2/bipasha31/python_scripts/CurrentWork/samples/{self.save_root}/{idx}_{rtype}.jpg'
-        # utils.save_image(
-        #     torch.cat((x, xrec), axis=0),
-        #     saveas,
-        #     nrow=x.shape[0],
-        #     normalize=True,
-        #     range=(-1, 1),
-        # )
+    def save_image(self, x, xrec, idx, rtype, batch_idx=''):
+        saveas = f'/home2/bipasha31/python_scripts/CurrentWork/samples/{self.save_root}/{idx}_{rtype}{batch_idx}.jpg'
+        utils.save_image(
+            torch.cat((x, xrec), axis=0),
+            saveas,
+            nrow=x.shape[0],
+            normalize=True,
+            range=(-1, 1),
+        )
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         x = self.get_input(batch, self.image_key)
@@ -105,7 +105,7 @@ class VQModel(pl.LightningModule):
 
         def get_proper_shape(x):
             shape = x.shape
-            return x.view(shape[0], -1, 3, shape[2], shape[3]).view(-1, 3, shape[2], shape[3])
+            return x.view(shape[0], -1, 1, shape[2], shape[3]).view(-1, 1, shape[2], shape[3])
 
         if x.shape[1] != 3:
             x = get_proper_shape(x)
@@ -137,14 +137,14 @@ class VQModel(pl.LightningModule):
 
         def get_proper_shape(x):
             shape = x.shape
-            return x.view(shape[0], -1, 3, shape[2], shape[3]).view(-1, 3, shape[2], shape[3])
+            return x.view(shape[0], -1, 1, shape[2], shape[3]).view(-1, 1, shape[2], shape[3])
 
         if x.shape[1] != 3:
             x = get_proper_shape(x)
             xrec = get_proper_shape(xrec)
 
         if batch_idx % self.save_image_every == 0:
-            self.save_image(x.detach().clone(), xrec.detach().clone(), self.global_step, 'val')
+            self.save_image(x.detach().clone(), xrec.detach().clone(), self.global_step, 'val', batch_idx=batch_idx)
 
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
