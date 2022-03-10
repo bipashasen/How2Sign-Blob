@@ -125,7 +125,8 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
     return source_face_perturbeds, target_images, target_backgrounds
 
 def get_validation_datapoints():
-    base = '/scratch/bipasha31/processed_vlog_dataset_copy/validation'
+    # base = '/scratch/bipasha31/processed_vlog_dataset_copy/validation'
+    base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
 
     video_segments = glob(base + '/*/*.mp4')
 
@@ -135,8 +136,10 @@ def get_validation_datapoints():
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
 
 def get_datapoints():
-    base = '/scratch/bipasha31/processed_vlog_dataset_copy'
-    valid_videos_json_path = base + '/valid_folders.json'
+    base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy'
+    valid_videos_json_path = os.path.join(base, 'valid_folders.json')
+    # base = '/scratch/bipasha31/processed_vlog_dataset_copy'
+    # valid_videos_json_path = base + '/valid_folders.json'
 
     def get_name(x):
         return '/'.join(x.split('/')[-4:])
@@ -290,7 +293,7 @@ class TemporalAlignmentDataset(Dataset):
                 saturation = random.uniform(1.0,1.5)
 
                 elements[1] = transforms.ColorJitter(
-                    brightness=brightness, contrast=(1), saturation=saturation)
+                    brightness=(brightness, brightness), contrast=(1, 1), saturation=(saturation, saturation))
 
             color_jitter_transform = transforms.Compose(elements)
 

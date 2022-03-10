@@ -85,7 +85,7 @@ def get_facetranslation_concatenated_on_different_channels(args, device):
         grayscale_required=args.gray)
 
     val_dataset = TemporalAlignmentDataset(
-        'val', 160, 
+        'val', 130, 
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
         grayscale_required=args.gray)

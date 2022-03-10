@@ -1,14 +1,14 @@
 import glob
-from skimage import io
-import numpy as np
-from torch.utils.data import Dataset
-from torchvision import transforms
-
 import random
-
 import json
 
+from skimage import io
+from sklearn.model_selection import train_test_split
+import numpy as np
+
+from torch.utils.data import Dataset
 import torch
+from torchvision import transforms
 
 class FacialTransformsMultipleFramesDataset(Dataset):
 	def __init__(self, mode, n):
@@ -26,14 +26,14 @@ class FacialTransformsMultipleFramesDataset(Dataset):
 		]
 
 		# self.base = '/ssd_scratch/cvit/bipasha31/processed_image_frames/*/*'
-		self.base = '/scratch/bipasha31/processed_vlog_dataset_copy/*/*/*/*'
+		# self.base = '/scratch/bipasha31/processed_vlog_dataset_copy/*/*/*/*'
+		self.base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/*/*/*/*'
 
 		datapoints = glob.glob(self.base)
 		random.shuffle(datapoints)
 
-		train_split = int(0.95*len(datapoints))
-
-		self.folders = datapoints[:train_split] if mode == 'train' else datapoints[train_split:]
+		train, test = train_test_split(datapoints, train_size=0.95)
+		self.folders = train if mode == 'train' else test
 
 		self.create_dataset()
 		

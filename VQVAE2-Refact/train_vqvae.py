@@ -1,6 +1,8 @@
 import argparse
 import sys
 import os
+import random
+import os.path as osp
 
 import torch
 from torch import nn, optim
@@ -24,9 +26,10 @@ sample_size = SAMPLE_SIZE_FOR_VISUALIZATION
 
 dataset = DATASET
 
-sample_folder = '/home2/bipasha31/python_scripts/CurrentWork/samples/{}'
+BASE = '/ssd_scratch/cvit/aditya1/video_vqvae2_results'
+# sample_folder = '/home2/bipasha31/python_scripts/CurrentWork/samples/{}'
 
-checkpoint_dir = 'checkpoint_{}'
+# checkpoint_dir = 'checkpoint_{}'
 
 def run_step(model, data, device, run='train'):
     img, S, ground_truth = process_data(data, device, dataset)
@@ -59,7 +62,7 @@ def blob2full_validation(model, img):
     save_image(torch.cat([face, rhand, lhand, out, gt], 0), 
         f"sample/{epoch + 1}_{i}.png")
 
-def jitter_validation(model, val_loader, device, epoch, i, run_type):
+def jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder):
     for i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
             source_images, input, prediction = run_step(model, data, device, run='val')
@@ -83,10 +86,10 @@ def jitter_validation(model, val_loader, device, epoch, i, run_type):
                 frames = saves[name].detach().cpu()
                 frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
 
-                os.makedirs(sample_folder, exist_ok=True)
+                # os.makedirs(sample_folder, exist_ok=True)
                 save_frames_as_video(frames, saveas, fps=25)
 
-def base_validation(model, val_loader, device, epoch, i, run_type):
+def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder):
     def get_proper_shape(x):
         shape = x.shape
         return x.view(shape[0], -1, 3, shape[2], shape[3]).view(-1, 3, shape[2], shape[3])
@@ -104,13 +107,13 @@ def base_validation(model, val_loader, device, epoch, i, run_type):
                 torch.cat([sample[:3*3], out[:3*3]], 0), 
                 f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
 
-def validation(model, val_loader, device, epoch, i, run_type='train'):
+def validation(model, val_loader, device, epoch, i, sample_folder, run_type='train'):
     if dataset == 6:
-        jitter_validation(model, val_loader, device, epoch, i, run_type)
+        jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
     else:
-        base_validation(model, val_loader, device, epoch, i, run_type)
+        base_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
 
-def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at):
+def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at, checkpoint_dir, sample_folder):
     if dist.is_primary():
         loader = tqdm(loader, file=sys.stdout)
 
@@ -159,12 +162,12 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
         if i % validate_at == 0:
             model.eval()
 
-            validation(model, val_loader, device, epoch, i)
+            validation(model, val_loader, device, epoch, i, sample_folder)
 
             if dist.is_primary():
                 os.makedirs(checkpoint_dir, exist_ok=True)
 
-                torch.save(model.state_dict(), f"{checkpoint_dir}/vqvae_{epoch+1}_{str(i + 1).zfill(3)}.pt")
+                torch.save(model.state_dict(), f"{checkpoint_dir}/vqvae_{epoch+1}_{str(i + 1).zfill(4)}.pt")
 
             model.train()
 
@@ -218,17 +221,24 @@ def main(args):
             )
 
         for i in range(args.epoch):
-            train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at)
+            train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at, args.checkpoint_dir, args.sample_folder)
+
+def get_random_name(cipher_length=5):
+    chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+    return ''.join([chars[random.randint(0, len(chars)-1)] for i in range(cipher_length)])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_gpu", type=int, default=1)
 
-    port = (
-        2 ** 15
-        + 2 ** 14
-        + hash(os.getuid() if sys.platform != "win32" else 1) % 2 ** 14
-    )
+    # port = (
+    #     2 ** 15
+    #     + 2 ** 14
+    #     + hash(os.getuid() if sys.platform != "win32" else 1) % 2 ** 14
+    # )
+
+    port = random.randint(51000, 52000)
+
     parser.add_argument("--dist_url", default=f"tcp://127.0.0.1:{port}")
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--size", type=int, default=256)
@@ -242,14 +252,22 @@ if __name__ == "__main__":
     parser.add_argument("--gray", action='store_true', required=False)
     parser.add_argument("--colorjit", type=str, default='', help='const or random or empty')
     parser.add_argument("--crossid", action='store_true', required=False)
+    parser.add_argument("--sample_folder", type=str, default='samples')
+    parser.add_argument("--checkpoint_dir", type=str, default='checkpoint')
 
     args = parser.parse_args()
 
-    args.n_gpu = torch.cuda.device_count()
+    # args.n_gpu = torch.cuda.device_count()
+    current_run = get_random_name()
 
-    sample_folder = sample_folder.format(args.checkpoint_suffix)
+    # sample_folder = sample_folder.format(args.checkpoint_suffix)
+    args.sample_folder = osp.join(BASE, args.sample_folder + '_' + current_run)
+    os.makedirs(args.sample_folder, exist_ok=True)
 
-    checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
+    args.checkpoint_dir = osp.join(BASE, args.checkpoint_dir + '_' + current_run)
+    # os.makedirs(args.checkpoint_dir, exist_ok=True)
+
+    # checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     print(args, flush=True)
 
