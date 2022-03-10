@@ -205,7 +205,7 @@ def main(args):
 
     if args.test:
         # test(loader, model, device)
-        validation(model, val_loader, device, 0, 0, 'val')
+        validation(model, val_loader, device, 0, 0, args.sample_folder, 'val')
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         
