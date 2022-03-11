@@ -256,7 +256,7 @@ class VQVAE(nn.Module):
 		embed_dim=64,
 		n_embed=512,
 		decay=0.99,
-		residual=True,
+		residual=False,
 		ckpt=None,
 		requires_conv=True,
 	):

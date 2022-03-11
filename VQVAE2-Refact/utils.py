@@ -14,8 +14,8 @@ from torchvision import datasets, transforms, utils
 
 from tqdm import tqdm
 
-# from models.vqvae_conv3d import VQVAE, VQVAE_B2F
 # from models.vqvae import VQVAE, VQVAE_B2F
+# from models.vqvae_conv3d import VQVAE
 from models.vqvae_wobbles import VQVAE
 from scheduler import CycleScheduler
 import distributed as dist
@@ -47,7 +47,7 @@ def save_image(data, saveas, video=False):
     )
 
 def process_data(data, device, dataset):
-    if dataset == 7:
+    if dataset == 8:
         source, target, background, source_images = data
         
         img = torch.cat([source, background], axis=2).squeeze(0).to(device)
@@ -133,6 +133,39 @@ def get_facetranslation_pretrained_wobbles(args, device):
         num_workers=2)
 
     return train_loader, val_loader, model    
+
+def get_facetranslation_video_discriminator(args, device):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from TemporalAlignment.models.video_discriminator import VideoDiscriminator
+
+    model = VQVAE(in_channel=3, ckpt='/ssd_scratch/cvit/aditya1/ckpts/varying_colorjitter.pt').to(device)
+    # model = VQVAE(in_channel=3*2).to(device)
+
+    disc = VideoDiscriminator(n_channels=3).to(device)
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', 70, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', 90, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    return train_loader, val_loader, model, disc  
 
 def get_facetranslation_multipleframes_loaders_and_model(args, device):
     from datasets.face_translation_multiple_frames import FacialTransformsMultipleFramesDataset
@@ -231,3 +264,5 @@ def get_loaders_and_models(args, dataset, default_transform, device, test=False)
         return get_facetranslation_concatenated_on_different_channels(args, device)
     elif dataset == 7:
         return get_facetranslation_pretrained_wobbles(args, device)
+    elif dataset == 8:
+        return get_facetranslation_video_discriminator(args, device)

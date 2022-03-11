@@ -6,8 +6,9 @@ DATASETS_MAP = {
     'facetranslation': 5
 }
 
-DATASET = 7
+DATASET = 8
 LATENT_LOSS_WEIGHT = 0.25
+DISC_LOSS_WEIGHT = 0.25 # TODO - modify
 SAMPLE_SIZE_FOR_VISUALIZATION = 8
 
 # ---- config for vlog_all5losses -- video-predisc ---- #
