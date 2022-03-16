@@ -175,7 +175,6 @@ class VQVAE(nn.Module):
         embed_dim=64,
         n_embed=512,
         decay=0.99,
-        residual=True,
     ):
         super().__init__()
 
@@ -200,26 +199,8 @@ class VQVAE(nn.Module):
             stride=4,
         )
 
-        self.residual = residual
-        self.conv3d = nn.Conv3d(64, 64, 3, padding=1)
-
     def forward(self, input):
         quant_t, quant_b, diff, _, _ = self.encode(input)
-        # quant_t.shape -> d x c x h x w -> 1 x c x d x h x w (conv3d can work on batches of videos)
-        # print(f'Size of quant_t and quant_b are : {quant_t.shape, quant_b.shape}')
-        quant_t_i, quant_b_i = quant_t.unsqueeze(0).permute(0, 2, 1, 3, 4), quant_b.unsqueeze(0).permute(0, 2, 1, 3, 4)
-        quant_t, quant_b = self.conv3d(quant_t_i), self.conv3d(quant_b_i)
-
-        if self.residual:
-            try:
-                quant_t += quant_t_i
-                quant_b += quant_b_i
-            except:
-                print(quant_t_i.shape)
-                print(quant_t.shape)
-
-        # quant_t.shape -> 1 x c x d x h x w
-        quant_t, quant_b = quant_t.squeeze(0).permute(1, 0, 2, 3), quant_b.squeeze(0).permute(1, 0, 2, 3)
         dec = self.decode(quant_t, quant_b)
 
         return dec, diff

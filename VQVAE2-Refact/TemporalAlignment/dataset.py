@@ -131,7 +131,7 @@ def get_validation_datapoints():
     video_segments = glob(base + '/*/*.mp4')
 
     def is_good_video(dir):
-        return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 3
+        return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 10
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
 
@@ -226,6 +226,16 @@ class TemporalAlignmentDataset(Dataset):
                 return self.get_item_alignment_network(index)
         except:
             return self.__getitem__(random.randint(0, self.__len__()-1))
+
+        # if self.case == 'jitter':
+        #     if self.cross_identity_required:
+        #         return self.get_item_jitter_network_cross_identity(index)
+        #     else:
+        #         return self.get_item_jitter_network(index)
+        # else:
+        #     return self.get_item_alignment_network(index)
+        # # except:
+        # #     return self.__getitem__(random.randint(0, self.__len__()-1))
 
     def get_item_jitter_network_cross_identity(self, index):
         source_video_dir = self.videos[index]

@@ -9,6 +9,7 @@ import os.path as osp
 import random
 from glob import glob
 from tqdm import tqdm
+from enum import Enum
 
 from TemporalAlignment.ranges import *
 
@@ -19,6 +20,7 @@ import torchvision.transforms as transforms
 
 import numpy as np
 from PIL import Image
+from wand.image import Image as WandImage
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,6 +30,12 @@ import numpy as np
 # 2. Translation along the vertical direction 
 # 3. Clockwise and anti-clockwise rotation 
 # 4. Resize (zoom-in and zoom-out)
+
+class Distortion(Enum):
+    ARC = 1,
+    BARREL = 2,
+    BARREL_INVERSE = 3,
+
 
 # Translates the image in the horizontal direction 
 def translate_horizontal(x, image):
@@ -107,6 +115,44 @@ def image_flip(flip_code, image):
     flipped_image = cv2.flip(image, int(flip_code))
     return flipped_image
 
+# applied distortion on the image
+def distort_image(distortion_type, image):
+    img_file = np.array(image)
+    with WandImage.from_array(img_file) as img:
+        if distortion_type == Distortion.ARC.value:
+            # add the arc distortion
+            distortion_angle = random.randint(0, 30)
+            img.distort('arc', (distortion_angle,))
+            img.resize(image.shape[0], image.shape[1])
+
+            # convert the image back to opencv image
+            opencv_image = np.array(img)
+
+        elif distortion_type == Distortion.BARREL.value:
+            # add the barrel distortion
+            a = random.randint(0, 10)/10
+            b = random.randint(2, 7)/10
+            c = random.randint(0, 5)/10
+            d = random.randint(10, 10)/10
+            args = (a, b, c, d)
+            img.distort('barrel', (args))
+            img.resize(image.shape[0], image.shape[1])
+
+            opencv_image = np.array(img)
+
+        else:
+            # add the inverse barrel distortion
+            b = random.randint(0, 2)/10
+            c = random.randint(-5, 0)/10
+            d = random.randint(10, 10)/10
+            args = (0.0, b, c, d)
+            img.distort('barrel_inverse', (args))
+            img.resize(image.shape[0], image.shape[1])
+
+            opencv_image = np.array(img)
+
+    return opencv_image
+
 # Method used to blend the perturbed_image and the face_masked image 
 # generate_mask flag can be used to mask the region that will be occupied by the perturbation 
 def combine_images(face_mask, perturbed_image, generate_mask=True):
@@ -150,6 +196,7 @@ def perturb_image_composite(face_image, landmark):
         resize_image,
         # shear_image,
         # image_flip,
+        # distort_image,
     ]
 
     perturbation_function_map = {
@@ -159,6 +206,7 @@ def perturb_image_composite(face_image, landmark):
         resize_image : [scale_ranges[0], scale_ranges[1], 100],
         shear_image : [-10, 10, 100],
         image_flip : [1, 1, 1],
+        distort_image : [0, len(Distortion), 1],
     }
 
     gt_transformations = {

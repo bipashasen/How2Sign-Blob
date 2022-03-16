@@ -98,14 +98,29 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
         with torch.no_grad():
             sample, _, out = run_step(model, data, device, 'val')
 
-        if sample.shape[1] != 3:
-            sample = get_proper_shape(sample[:sample_size])
-            out = get_proper_shape(out[:sample_size])
-
         if val_i % (len(val_loader)//10) == 0: # save 10 results
-            save_image(
-                torch.cat([sample[:3*3], out[:3*3]], 0), 
-                f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
+
+            def denormalize(x):
+                return (x.clamp(min=-1.0, max=1.0) + 1)/2
+                
+            # save_image(
+            #     torch.cat([sample[:3*3], out[:3*3]], 0), 
+            #     f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
+
+            save_as_sample = f"{sample_folder}/{epoch+1}_{global_step}_{i}_sample.mp4"
+            save_as_out = f"{sample_folder}/{epoch+1}_{global_step}_{i}_out.mp4"
+
+            # save_as_sample = f"{sample_folder}/{val_i}_sample.mp4"
+            # save_as_out = f"{sample_folder}/{val_i}_out.mp4"
+
+            sample = sample.detach().cpu()
+            sample = [denormalize(x).permute(1, 2, 0).numpy() for x in sample]
+
+            out = out.detach().cpu()
+            out = [denormalize(x).permute(1, 2, 0).numpy() for x in out]
+
+            save_frames_as_video(sample, save_as_sample, fps=25)
+            save_frames_as_video(out, save_as_out, fps=25)
 
 def validation(model, val_loader, device, epoch, i, sample_folder, run_type='train'):
     if dataset == 6:
@@ -196,6 +211,7 @@ def main(args):
         )
 
     if args.ckpt:
+        print(f'Loading pretrained checkpoint - {args.ckpt}')
         state_dict = torch.load(args.ckpt)
         state_dict = { k.replace('module.', ''): v for k, v in state_dict.items() }  
         try:

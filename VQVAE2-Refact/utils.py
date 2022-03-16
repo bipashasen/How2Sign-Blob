@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 # from models.vqvae import VQVAE, VQVAE_B2F
 # from models.vqvae_conv3d import VQVAE
-from models.vqvae_wobbles import VQVAE
+# from models.vqvae_wobbles import VQVAE
 from scheduler import CycleScheduler
 import distributed as dist
 
@@ -47,7 +47,7 @@ def save_image(data, saveas, video=False):
     )
 
 def process_data(data, device, dataset):
-    if dataset == 8:
+    if dataset == 6 or dataset == 7 or dataset == 8:
         source, target, background, source_images = data
         
         img = torch.cat([source, background], axis=2).squeeze(0).to(device)
@@ -105,9 +105,13 @@ def get_facetranslation_concatenated_on_different_channels(args, device):
 
     return train_loader, val_loader, model
 
+# takes a video with face perturbations as input 
+# pretrained vqvae2 model fixes the alignment issues
 def get_facetranslation_pretrained_wobbles(args, device):
     from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from models.vqvae_wobbles import VQVAE
 
+    # ckpt is the pretrained alignment checkpoint
     model = VQVAE(in_channel=3, ckpt='/ssd_scratch/cvit/aditya1/ckpts/varying_colorjitter.pt').to(device)
 
     train_dataset = TemporalAlignmentDataset(
@@ -138,7 +142,7 @@ def get_facetranslation_video_discriminator(args, device):
     from TemporalAlignment.dataset import TemporalAlignmentDataset 
     from TemporalAlignment.models.video_discriminator import VideoDiscriminator
 
-    model = VQVAE(in_channel=3, ckpt='/ssd_scratch/cvit/aditya1/ckpts/varying_colorjitter.pt').to(device)
+    model = VQVAE(in_channel=3, ckpt='/ssd_scratch/cvit/aditya1/ckpts/const_color_jitter.pt').to(device)
     # model = VQVAE(in_channel=3*2).to(device)
 
     disc = VideoDiscriminator(n_channels=3).to(device)

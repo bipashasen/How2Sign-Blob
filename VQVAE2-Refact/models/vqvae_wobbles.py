@@ -178,7 +178,6 @@ class VQVAE_ALIGNMENT_MODEL(nn.Module):
 		embed_dim=64,
 		n_embed=512,
 		decay=0.99,
-		residual=False,
 	):
 		super().__init__()
 
@@ -284,7 +283,7 @@ class VQVAE(nn.Module):
 		)
 
 		self.pretrained_alignment_model = VQVAE_ALIGNMENT_MODEL(in_channel=3*2)
-		# load the checkpoint
+		# load the pretrained alignment module
 		if ckpt:
 			state_dict = torch.load(ckpt)
 			state_dict = { k.replace('module.', ''): v for k, v in state_dict.items() }  
