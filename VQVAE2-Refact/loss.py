@@ -24,6 +24,14 @@ def vanilla_d_loss(logits_real, logits_fake):
         torch.mean(torch.nn.functional.softplus(logits_fake)))
     return d_loss
 
+class VQLPIPS(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.perceptual_loss = LPIPS().eval()
+
+    def forward(self, targets, reconstructions):
+        return self.perceptual_loss(targets.contiguous(), reconstructions.contiguous()).mean()
+
 class VQLPIPSWithDiscriminator(nn.Module):
     def __init__(self, disc_start,
                  disc_num_layers=3, disc_in_channels=3, 

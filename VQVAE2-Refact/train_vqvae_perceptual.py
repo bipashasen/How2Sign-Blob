@@ -16,7 +16,7 @@ from scheduler import CycleScheduler
 import distributed as dist
 
 from utils import *
-from config import DATASET, LATENT_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
+from config import DATASET, LATENT_LOSS_WEIGHT, PERCEPTUAL_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
 
 criterion = nn.MSELoss()
 
@@ -31,7 +31,8 @@ BASE = '/ssd_scratch/cvit/aditya1/video_vqvae2_results'
 
 # checkpoint_dir = 'checkpoint_{}'
 
-def run_step(model, data, device, run='train'):
+
+def run_step(model, vqlpips, data, device, run='train'):
     img, S, ground_truth = process_data(data, device, dataset)
 
     out, latent_loss = model(img)
@@ -40,9 +41,11 @@ def run_step(model, data, device, run='train'):
     
     recon_loss = criterion(out, ground_truth)
     latent_loss = latent_loss.mean()
+
+    perceptual_loss = vqlpips(ground_truth, out)
     
     if run == 'train':
-        return recon_loss, latent_loss, S
+        return recon_loss, latent_loss, perceptual_loss, S
     else:
         return ground_truth, img, out
 
@@ -62,10 +65,10 @@ def blob2full_validation(model, img):
     save_image(torch.cat([face, rhand, lhand, out, gt], 0), 
         f"sample/{epoch + 1}_{i}.png")
 
-def jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder):
+def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
     for i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            source_images, input, prediction = run_step(model, data, device, run='val')
+            source_images, input, prediction = run_step(model, vqlpips, data, device, run='val')
             
         source_hulls = input[:, :3]
         background = input[:, 3:]
@@ -89,14 +92,14 @@ def jitter_validation(model, val_loader, device, epoch, i, run_type, sample_fold
                 # os.makedirs(sample_folder, exist_ok=True)
                 save_frames_as_video(frames, saveas, fps=25)
 
-def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder):
+def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
     def get_proper_shape(x):
         shape = x.shape
         return x.view(shape[0], -1, 3, shape[2], shape[3]).view(-1, 3, shape[2], shape[3])
 
     for val_i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            sample, _, out = run_step(model, data, device, 'val')
+            sample, _, out = run_step(model, vqlpips, data, device, 'val')
 
         if val_i % (len(val_loader)//10) == 0: # save 10 results
 
@@ -122,27 +125,30 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
             save_frames_as_video(sample, save_as_sample, fps=25)
             save_frames_as_video(out, save_as_out, fps=25)
 
-def validation(model, val_loader, device, epoch, i, sample_folder, run_type='train'):
+def validation(model, vqlpips, val_loader, device, epoch, i, sample_folder, run_type='train'):
     if dataset >= 6:
-        jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
+        jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder)
     else:
-        base_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
+        base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder)
 
-def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at, checkpoint_dir, sample_folder):
+def train(model, vqlpips, loader, val_loader, optimizer, scheduler, device, epoch, validate_at, checkpoint_dir, sample_folder):
     if dist.is_primary():
         loader = tqdm(loader, file=sys.stdout)
 
     mse_sum = 0
     mse_n = 0
+    perceptual_losses = []
 
     for i, data in enumerate(loader):
         model.zero_grad()
 
-        recon_loss, latent_loss, S = run_step(model, data, device)
+        recon_loss, latent_loss, perceptual_loss, S = run_step(model, vqlpips, data, device)
 
-        loss = recon_loss + LATENT_LOSS_WEIGHT * latent_loss
+        loss = recon_loss + LATENT_LOSS_WEIGHT * latent_loss + PERCEPTUAL_LOSS_WEIGHT * perceptual_loss
 
         loss.backward()
+
+        perceptual_losses.append(perceptual_loss.item())
 
         if scheduler is not None:
             scheduler.step()
@@ -169,6 +175,7 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
             loader.set_description(
                 (
                     f"epoch: {epoch + 1}; mse: {recon_loss.item():.5f}; "
+                    f"perceptual: {np.array(perceptual_losses).mean():.3f} "
                     f"latent: {latent_loss.item():.3f}; avg mse: {mse_sum / mse_n:.5f}; "
                     f"lr: {lr:.5f}"
                 )
@@ -177,7 +184,7 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
         if i % validate_at == 0:
             model.eval()
 
-            validation(model, val_loader, device, epoch, i, sample_folder)
+            validation(model, vqlpips, val_loader, device, epoch, i, sample_folder)
 
             if dist.is_primary():
                 os.makedirs(checkpoint_dir, exist_ok=True)
@@ -200,12 +207,18 @@ def main(args):
         ]
     )
 
-    loader, val_loader, model = get_loaders_and_models(
+    loader, val_loader, model, vqlpips = get_loaders_and_models(
         args, dataset, default_transform, device, test=args.test)
 
     if args.distributed:
         model = nn.parallel.DistributedDataParallel(
             model,
+            device_ids=[dist.get_local_rank()],
+            output_device=dist.get_local_rank(),
+        )
+
+        vqlpips = nn.parallel.DistributedDataParallel(
+            vqlpips,
             device_ids=[dist.get_local_rank()],
             output_device=dist.get_local_rank(),
         )
@@ -221,7 +234,7 @@ def main(args):
 
     if args.test:
         # test(loader, model, device)
-        validation(model, val_loader, device, 0, 0, args.sample_folder, 'val')
+        validation(model, vqlpips, val_loader, device, 0, 0, args.sample_folder, 'val')
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
         
@@ -237,7 +250,7 @@ def main(args):
             )
 
         for i in range(args.epoch):
-            train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at, args.checkpoint_dir, args.sample_folder)
+            train(model, vqlpips, loader, val_loader, optimizer, scheduler, device, i, args.validate_at, args.checkpoint_dir, args.sample_folder)
 
 def get_random_name(cipher_length=5):
     chars = 'abcdefghijklmnopqrstuvwxyz0123456789'

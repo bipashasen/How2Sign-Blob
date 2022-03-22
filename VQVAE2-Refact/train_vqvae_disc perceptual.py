@@ -1,3 +1,5 @@
+# This code uses the video discriminator along with perceptual loss
+
 import argparse
 import sys
 import os
@@ -16,15 +18,19 @@ from scheduler import CycleScheduler
 import distributed as dist
 
 from utils import *
-from config import DATASET, LATENT_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
+from config import DATASET, LATENT_LOSS_WEIGHT, DISC_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
 
 criterion = nn.MSELoss()
+
+bce_loss = nn.BCEWithLogitsLoss()
 
 global_step = 0
 
 sample_size = SAMPLE_SIZE_FOR_VISUALIZATION
 
 dataset = DATASET
+
+CONST_FRAMES_TO_CHECK = 16
 
 BASE = '/ssd_scratch/cvit/aditya1/video_vqvae2_results'
 # sample_folder = '/home2/bipasha31/python_scripts/CurrentWork/samples/{}'
@@ -42,9 +48,18 @@ def run_step(model, data, device, run='train'):
     latent_loss = latent_loss.mean()
     
     if run == 'train':
-        return recon_loss, latent_loss, S
+        return recon_loss, latent_loss, S, out, ground_truth
     else:
         return ground_truth, img, out
+
+def run_step_custom(model, data, device, run='train'):
+    img, S, ground_truth = process_data(data, device, dataset)
+
+    out, latent_loss = model(img)
+
+    out = out[:, :3] # first 3 channels of the prediction
+
+    return out, ground_truth
 
 def blob2full_validation(model, img):
     face, rhand, lhand = img
@@ -98,6 +113,28 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
         with torch.no_grad():
             sample, _, out = run_step(model, data, device, 'val')
 
+        # print(f'sample shape : {sample.shape}, out shape : {out.shape}')
+        # reshape the sample and the output
+        # sample = sample.permute(0, 2, 3, 1)
+        # out = out.permute(0, 2, 3, 1)
+
+        # if sample.shape[1] != 3:
+        #     sample = get_proper_shape(sample[:sample_size])
+        #     out = get_proper_shape(out[:sample_size])
+
+        # if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+        #     def denormalize(x):
+        #         return (x.clamp(min=-1.0, max=1.0) + 1)/2
+
+        #     for name in saves:
+        #         saveas = f"{sample_folder}/{epoch + 1}_{global_step}_{i}_{name}.mp4"
+        #         frames = saves[name].detach().cpu()
+        #         frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
+
+        #         # os.makedirs(sample_folder, exist_ok=True)
+        #         save_frames_as_video(frames, saveas, fps=25)
+
+
         if val_i % (len(val_loader)//10) == 0: # save 10 results
 
             def denormalize(x):
@@ -107,11 +144,8 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
             #     torch.cat([sample[:3*3], out[:3*3]], 0), 
             #     f"{sample_folder}/{epoch + 1}_{i}_{val_i}.png")
 
-            save_as_sample = f"{sample_folder}/{epoch+1}_{global_step}_{i}_sample.mp4"
-            save_as_out = f"{sample_folder}/{epoch+1}_{global_step}_{i}_out.mp4"
-
-            # save_as_sample = f"{sample_folder}/{val_i}_sample.mp4"
-            # save_as_out = f"{sample_folder}/{val_i}_out.mp4"
+            save_as_sample = f"{sample_folder}/{val_i}_sample.mp4"
+            save_as_out = f"{sample_folder}/{val_i}_out.mp4"
 
             sample = sample.detach().cpu()
             sample = [denormalize(x).permute(1, 2, 0).numpy() for x in sample]
@@ -123,56 +157,124 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
             save_frames_as_video(out, save_as_out, fps=25)
 
 def validation(model, val_loader, device, epoch, i, sample_folder, run_type='train'):
-    if dataset >= 6:
+    if dataset == 6:
         jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
     else:
         base_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
 
-def train(model, loader, val_loader, optimizer, scheduler, device, epoch, validate_at, checkpoint_dir, sample_folder):
+def train(model, disc, loader, val_loader, optimizer, disc_optimizer, scheduler, device, epoch, validate_at, checkpoint_dir, sample_folder):
     if dist.is_primary():
         loader = tqdm(loader, file=sys.stdout)
 
     mse_sum = 0
     mse_n = 0
+    disc_sum = 0
+    disc_n = 0
+
+    global global_step
 
     for i, data in enumerate(loader):
-        model.zero_grad()
 
-        recon_loss, latent_loss, S = run_step(model, data, device)
+        # disc step
+        if global_step%2:
+            model.zero_grad()
+            disc.zero_grad()
 
-        loss = recon_loss + LATENT_LOSS_WEIGHT * latent_loss
+            # generator step 
+            prediction, ground_truth = run_step_custom(model, data, device)
 
-        loss.backward()
+            # generate the disc predictions 
+            # print(f'Ground truth shape : {ground_truth.shape}, prediction shape : {prediction.shape}')
 
-        if scheduler is not None:
-            scheduler.step()
+            # test the flow for any random sequence of frames
+            random_index = random.randint(0, ground_truth.shape[0] - CONST_FRAMES_TO_CHECK - 1)
 
-        optimizer.step()
+            ground_truth = ground_truth[random_index : random_index + CONST_FRAMES_TO_CHECK].unsqueeze(0).permute(0, 2, 1, 3, 4)
+            prediction = prediction[random_index : random_index + CONST_FRAMES_TO_CHECK].unsqueeze(0).permute(0, 2, 1, 3, 4)
 
-        global global_step
+            disc_real_pred = disc(ground_truth)
+            disc_fake_pred = disc(prediction.detach()) 
+
+            disc_real_loss = bce_loss(disc_real_pred, torch.ones_like(disc_real_pred))
+            disc_fake_loss = bce_loss(disc_fake_pred, torch.zeros_like(disc_fake_pred))
+
+            disc_loss = (disc_real_loss + disc_fake_loss) / 2
+
+            # backprop the disc loss
+            disc_loss.backward()
+            disc_optimizer.step()
+
+            # print(f'Disc real prediction : {disc_real_pred.shape}, disc fake : {disc_fake_pred.shape}')
+            part_disc_sum = disc_loss.item() * S
+            part_disc_n = S
+
+            comm = {"disc_sum": part_disc_sum, "disc_n": part_disc_n}
+            comm = dist.all_gather(comm)
+
+            for part in comm:
+                disc_sum += part["disc_sum"]
+                disc_n += part["disc_n"]
+
+            if dist.is_primary():
+                lr = optimizer.param_groups[0]["lr"]
+
+                loader.set_description(
+                    (
+                        f"epoch: {epoch + 1}; disc step; disc loss: {disc_loss.item():.5f}; "
+                        f"avg disc loss: {disc_sum / disc_n:.5f}; "
+                        f"lr: {lr:.5f}"
+                    )
+                )
+            
+        # gen step
+        else:
+            model.zero_grad()
+            disc.zero_grad()
+
+            # train the generator 
+            recon_loss, latent_loss, S, prediction, ground_truth = \
+                        run_step(model, data, device)
+
+            # generate the discriminator predictions on the generator output
+            random_index = random.randint(0, ground_truth.shape[0] - CONST_FRAMES_TO_CHECK - 1)
+
+            prediction = prediction[random_index : random_index + CONST_FRAMES_TO_CHECK].unsqueeze(0).permute(0, 2, 1, 3, 4)
+
+            disc_fake_pred = disc(prediction)
+
+            disc_fake_loss = bce_loss(disc_fake_pred, torch.ones_like(disc_fake_pred))
+
+            gen_loss = recon_loss + LATENT_LOSS_WEIGHT * latent_loss + DISC_LOSS_WEIGHT * disc_fake_loss
+
+            gen_loss.backward()
+
+            if scheduler is not None:
+                scheduler.step()
+
+            optimizer.step()
+
+            part_mse_sum = recon_loss.item() * S
+            part_mse_n = S
+
+            comm = {"mse_sum": part_mse_sum, "mse_n": part_mse_n}
+            comm = dist.all_gather(comm)
+
+            for part in comm:
+                mse_sum += part["mse_sum"]
+                mse_n += part["mse_n"]
+
+            if dist.is_primary():
+                lr = optimizer.param_groups[0]["lr"]
+
+                loader.set_description(
+                    (
+                        f"epoch: {epoch + 1}; gen step; mse: {recon_loss.item():.5f}; "
+                        f"latent: {latent_loss.item():.3f}; avg mse: {mse_sum / mse_n:.5f}; "
+                        f"lr: {lr:.5f}"
+                    )
+                )
 
         global_step += 1
-
-        part_mse_sum = recon_loss.item() * S
-        part_mse_n = S
-
-        comm = {"mse_sum": part_mse_sum, "mse_n": part_mse_n}
-        comm = dist.all_gather(comm)
-
-        for part in comm:
-            mse_sum += part["mse_sum"]
-            mse_n += part["mse_n"]
-
-        if dist.is_primary():
-            lr = optimizer.param_groups[0]["lr"]
-
-            loader.set_description(
-                (
-                    f"epoch: {epoch + 1}; mse: {recon_loss.item():.5f}; "
-                    f"latent: {latent_loss.item():.3f}; avg mse: {mse_sum / mse_n:.5f}; "
-                    f"lr: {lr:.5f}"
-                )
-            )
 
         if i % validate_at == 0:
             model.eval()
@@ -200,7 +302,7 @@ def main(args):
         ]
     )
 
-    loader, val_loader, model = get_loaders_and_models(
+    loader, val_loader, model, disc = get_loaders_and_models(
         args, dataset, default_transform, device, test=args.test)
 
     if args.distributed:
@@ -210,8 +312,13 @@ def main(args):
             output_device=dist.get_local_rank(),
         )
 
+        disc = nn.parallel.DistributedDataParallel(
+            disc,
+            device_ids=[dist.get_local_rank()],
+            output_device=dist.get_local_rank(),
+        )
+
     if args.ckpt:
-        print(f'Loading pretrained checkpoint - {args.ckpt}')
         state_dict = torch.load(args.ckpt)
         state_dict = { k.replace('module.', ''): v for k, v in state_dict.items() }  
         try:
@@ -224,6 +331,8 @@ def main(args):
         validation(model, val_loader, device, 0, 0, args.sample_folder, 'val')
     else:
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
+        disc_optimizer = optim.Adam(disc.parameters(), lr=0.0002, betas=(0.5, 0.999),
+                                             weight_decay=0.00001)
         
         scheduler = None
         
@@ -237,7 +346,7 @@ def main(args):
             )
 
         for i in range(args.epoch):
-            train(model, loader, val_loader, optimizer, scheduler, device, i, args.validate_at, args.checkpoint_dir, args.sample_folder)
+            train(model, disc, loader, val_loader, optimizer, disc_optimizer, scheduler, device, i, args.validate_at, args.checkpoint_dir, args.sample_folder)
 
 def get_random_name(cipher_length=5):
     chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -262,7 +371,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--sched", type=str)
     parser.add_argument("--checkpoint_suffix", type=str, default='')
-    parser.add_argument("--validate_at", type=int, default=1024)
+    parser.add_argument("--validate_at", type=int, default=512)
     parser.add_argument("--ckpt", required=False)
     parser.add_argument("--test", action='store_true', required=False)
     parser.add_argument("--gray", action='store_true', required=False)

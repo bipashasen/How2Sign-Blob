@@ -196,7 +196,7 @@ def perturb_image_composite(face_image, landmark):
         resize_image,
         # shear_image,
         # image_flip,
-        # distort_image,
+        distort_image,
     ]
 
     perturbation_function_map = {

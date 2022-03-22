@@ -175,7 +175,7 @@ class Conv3dLatentPostnet(nn.Module):
             self.conv3d_layer(channels=channels, is_final=True)
         )
     
-    def conv3d_layer(self, channels=64, kernel_size=3, padding=1, is_final=False):
+    def conv3d_layer(self, channels=128, kernel_size=3, padding=1, is_final=False):
         if is_final:
             return nn.Sequential(
                 nn.Conv3d(channels, channels, kernel_size, padding=padding)
@@ -226,33 +226,41 @@ class VQVAE(nn.Module):
 
         self.residual = residual
 
-        self.conv3d_b = Conv3dLatentPostnet(64)
-        self.conv3d_t = Conv3dLatentPostnet(64)
+        # bottom encoded dimension - batch_size x 128 x 64 x 64
+        self.conv3d_encoded_b = Conv3dLatentPostnet(128)
+        self.conv3d_encoded_t = Conv3dLatentPostnet(128)
+
+        # self.conv3d_encoded_b = nn.Conv3d(128, 128, 3, padding=1)
+        # self.conv3d_encoded_t = nn.Conv3d(128, 128, 3, padding=1)
+
+
+    def only_encode(self, input):
+        enc_b = self.enc_b(input)
+        enc_t = self.enc_t(enc_b)
+
+        return enc_b, enc_t
 
     def forward(self, input):
-        quant_t, quant_b, diff, _, _ = self.encode(input)
-        # quant_t.shape -> d x c x h x w -> 1 x c x d x h x w (conv3d can work on batches of videos)
-        # print(f'Size of quant_t and quant_b are : {quant_t.shape, quant_b.shape}')
-        quant_t_i, quant_b_i = quant_t.unsqueeze(0).permute(0, 2, 1, 3, 4), quant_b.unsqueeze(0).permute(0, 2, 1, 3, 4)
-        quant_t, quant_b = self.conv3d_t(quant_t_i), self.conv3d_b(quant_b_i)
+        enc_b, enc_t = self.only_encode(input)
 
-        if self.residual:
-            try:
-                quant_t += quant_t_i
-                quant_b += quant_b_i
-            except:
-                print(quant_t_i.shape)
-                print(quant_t.shape)
+        # enc_b dimension -> batch_size x 128 x 64 x 64
+        enc_b, enc_t = enc_b.unsqueeze(0).permute(0, 2, 1, 3, 4), enc_t.unsqueeze(0).permute(0, 2, 1, 3, 4)
 
-        # quant_t.shape -> 1 x c x d x h x w
-        quant_t, quant_b = quant_t.squeeze(0).permute(1, 0, 2, 3), quant_b.squeeze(0).permute(1, 0, 2, 3)
+        # apply the 3d conv on the encoded representations 
+        enc_b_conv, enc_t_conv = self.conv3d_encoded_b(enc_b), self.conv3d_encoded_t(enc_t)
+        enc_b_conv, enc_t_conv = enc_b_conv.squeeze(0).permute(1, 0, 2, 3), enc_t_conv.squeeze(0).permute(1, 0, 2, 3)
+
+        # generate the quantized representation
+        quant_t, quant_b, diff, _, _ = self.encode_quantized(enc_b_conv, enc_t_conv)
+
+        # generate the decoded representation
         dec = self.decode(quant_t, quant_b)
 
         return dec, diff
 
-    def encode(self, input):
-        enc_b = self.enc_b(input)
-        enc_t = self.enc_t(enc_b)
+    def encode_quantized(self, enc_b, enc_t):
+        # enc_b = self.enc_b(input)
+        # enc_t = self.enc_t(enc_b)
 
         quant_t = self.quantize_conv_t(enc_t).permute(0, 2, 3, 1)
         quant_t, diff_t, id_t = self.quantize_t(quant_t)

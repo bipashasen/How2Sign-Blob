@@ -47,7 +47,7 @@ def save_image(data, saveas, video=False):
     )
 
 def process_data(data, device, dataset):
-    if dataset == 6 or dataset == 7 or dataset == 8:
+    if dataset >= 6:
         source, target, background, source_images = data
         
         img = torch.cat([source, background], axis=2).squeeze(0).to(device)
@@ -77,6 +77,7 @@ def process_data(data, device, dataset):
     return img, S, ground_truth
 
 def get_facetranslation_concatenated_on_different_channels(args, device):
+    from models.vqvae import VQVAE, VQVAE_B2F
     from TemporalAlignment.dataset import TemporalAlignmentDataset
 
     model = VQVAE(in_channel=3*2).to(device)
@@ -170,6 +171,134 @@ def get_facetranslation_video_discriminator(args, device):
         num_workers=2)
 
     return train_loader, val_loader, model, disc  
+
+# conv3d is applied before quantization
+def get_facetranslation_latent_conv(args, device):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from models.vqvae_conv3d_latent import VQVAE
+
+    model = VQVAE(in_channel=3*2).to(device)
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', 90, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', 126, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    return train_loader, val_loader, model  
+
+# conv3d is appled before quanization and lpips loss is initialized
+def get_facetranslation_latent_conv_perceptual(args, device):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from models.vqvae_conv3d_latent import VQVAE
+    from loss import VQLPIPS
+
+    model = VQVAE(in_channel=3*2).to(device)
+    vqlpips = VQLPIPS().to(device)
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', 30, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', 50, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    return train_loader, val_loader, model, vqlpips
+
+# conv3d is applied after quantization
+def get_facetranslation_quantization_conv(args, device):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from models.vqvae_conv3d import VQVAE
+
+    model = VQVAE(in_channel=3*2).to(device)
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', 90, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', 126, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    return train_loader, val_loader, model  
+
+# conv3d is applied after quantization and perceptual loss is added
+def get_facetranslation_quantization_conv_perceptual(args, device):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    from models.vqvae_conv3d import VQVAE
+    from loss import VQLPIPS
+
+    model = VQVAE(in_channel=3*2).to(device)
+    vqlpips = VQLPIPS().to(device)
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', 30, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', 50, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    return train_loader, val_loader, model, vqlpips
 
 def get_facetranslation_multipleframes_loaders_and_model(args, device):
     from datasets.face_translation_multiple_frames import FacialTransformsMultipleFramesDataset
@@ -270,3 +399,16 @@ def get_loaders_and_models(args, dataset, default_transform, device, test=False)
         return get_facetranslation_pretrained_wobbles(args, device)
     elif dataset == 8:
         return get_facetranslation_video_discriminator(args, device)
+    elif dataset == 9:
+        # conv3d is added to the output of the encoded representation before quantization
+        return get_facetranslation_latent_conv(args, device)
+    elif dataset == 10:
+        # conv3d is added to the output of the quantization layer 
+        return get_facetranslation_quantization_conv(args, device)
+    elif dataset == 11:
+        # conv3d is applied before quantization and lpips perceptual loss is added
+        return get_facetranslation_latent_conv_perceptual(args, device)
+    elif dataset == 12:
+        # conv3d is applied after quantization and lpips perceptual loss is added
+        return get_facetranslation_quantization_conv_perceptual(args, device)
+    
