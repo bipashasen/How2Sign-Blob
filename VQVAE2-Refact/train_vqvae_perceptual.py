@@ -33,7 +33,7 @@ BASE = '/ssd_scratch/cvit/aditya1/video_vqvae2_results'
 
 
 def run_step(model, vqlpips, data, device, run='train'):
-    img, S, ground_truth = process_data(data, device, dataset)
+    img, S, ground_truth, source_image = process_data(data, device, dataset)
 
     out, latent_loss = model(img)
 
@@ -47,7 +47,7 @@ def run_step(model, vqlpips, data, device, run='train'):
     if run == 'train':
         return recon_loss, latent_loss, perceptual_loss, S
     else:
-        return ground_truth, img, out
+        return ground_truth, img, out, source_image
 
 def blob2full_validation(model, img):
     face, rhand, lhand = img
@@ -68,7 +68,7 @@ def blob2full_validation(model, img):
 def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
     for i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            source_images, input, prediction = run_step(model, vqlpips, data, device, run='val')
+            source_images, input, prediction, source_images_original = run_step(model, vqlpips, data, device, run='val')
             
         source_hulls = input[:, :3]
         background = input[:, 3:]
@@ -77,10 +77,12 @@ def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sa
             'source': source_hulls,
             'background': background,
             'prediction': prediction,
-            'source_images': source_images
+            'source_images': source_images,
+            'source_original': source_images_original,
         }
 
-        if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+        # if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+        if run_type != 'train':
             def denormalize(x):
                 return (x.clamp(min=-1.0, max=1.0) + 1)/2
 
@@ -99,9 +101,10 @@ def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, samp
 
     for val_i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            sample, _, out = run_step(model, vqlpips, data, device, 'val')
+            sample, _, out, source_images_original = run_step(model, vqlpips, data, device, 'val')
 
-        if val_i % (len(val_loader)//10) == 0: # save 10 results
+        # if val_i % (len(val_loader)//10) == 0: # save 10 results
+        if True:
 
             def denormalize(x):
                 return (x.clamp(min=-1.0, max=1.0) + 1)/2
@@ -281,6 +284,7 @@ if __name__ == "__main__":
     parser.add_argument("--gray", action='store_true', required=False)
     parser.add_argument("--colorjit", type=str, default='', help='const or random or empty')
     parser.add_argument("--crossid", action='store_true', required=False)
+    parser.add_argument("--custom_validation", action='store_true', required=False)
     parser.add_argument("--sample_folder", type=str, default='samples')
     parser.add_argument("--checkpoint_dir", type=str, default='checkpoint')
 

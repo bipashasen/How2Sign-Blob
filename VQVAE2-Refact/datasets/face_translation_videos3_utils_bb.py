@@ -1,3 +1,6 @@
+# uses the bounding box around the landmarks rather than the convex hull
+# for generating masked region 
+
 import sys
 import random
 from glob import glob
@@ -16,6 +19,16 @@ from scipy.ndimage import laplace
 
 target_without_face_apply = True
 
+requires_bb = False
+extract_lip_region = False
+
+if extract_lip_region:
+    start_idx = 49
+    end_idx = 61
+else:
+    start_idx = 0
+    end_idx = 67
+
 def resize_frame(frame, resize_dim=256):
     h, w, _ = frame.shape
 
@@ -30,13 +43,21 @@ def resize_frame(frame, resize_dim=256):
     return padded
 
 def readPoints(nparray) :
-    points = [];
+    points = []
     
     for row in nparray:
         x, y = row[0], row[1]
         points.append((int(x), int(y)))
     
     return points
+
+# generate convex based on the bounding box coordinates
+def generate_convex_hull_bb(img, points):
+    mask = np.zeros(img.shape, dtype=img.dtype)
+    min_x, max_x, min_y, max_y = estimate_bb_coordinates(points)
+    mask[min_y:max_y, min_x:max_x] = 255
+
+    return mask
 
 def generate_convex_hull(img, points):
     # points = np.load(landmark_path, allow_pickle=True)['landmark'].astype(np.uint8)
@@ -135,6 +156,12 @@ def compute_rotation(shape):
 def apply_mask(mask, image):
     return ((mask / 255.) * image).astype(np.uint8)
 
+def estimate_bb_coordinates(landmarks, epsilon=10):
+    min_x, max_x, min_y, max_y = int(np.min(landmarks[:, 0])), int(np.max(landmarks[:, 0])), \
+                        int(np.min(landmarks[:, 1])), int(np.max(landmarks[:, 1]))
+
+    return min_x - epsilon, max_x + epsilon, min_y - epsilon, max_y + epsilon
+
 # code to generate the alignment between the source and the target image 
 def generate_warped_image(source_landmark_npz, target_landmark_npz, 
                             source_image_path, target_image_path,
@@ -155,7 +182,11 @@ def generate_warped_image(source_landmark_npz, target_landmark_npz,
         source_convex_mask = generate_convex_hull(source_image, source_landmarks)
         source_convex_mask_no_enlargement = source_convex_mask.copy()
     else:
-        source_convex_mask = generate_convex_hull(source_image, source_landmarks[17:])
+        if requires_bb:
+            source_convex_mask = generate_convex_hull_bb(source_image, source_landmarks[start_idx:end_idx])
+        else:
+            source_convex_mask = generate_convex_hull(source_image, source_landmarks[start_idx:end_idx])
+        
         # enlarge the convex mask
         source_convex_mask_no_enlargement = source_convex_mask.copy()
         source_convex_mask = enlarge_mask(source_convex_mask, enlargement=10)
@@ -174,7 +205,11 @@ def generate_warped_image(source_landmark_npz, target_landmark_npz,
     target_convex_mask = np.invert(generate_convex_hull(target_image, target_landmarks))
     # target_background = apply_mask(target_convex_mask, target_image)
     
-    target_convex_mask_without_jaw = generate_convex_hull(target_image, target_landmarks[17:])
+    if requires_bb:
+        target_convex_mask_without_jaw = generate_convex_hull_bb(target_image, target_landmarks[start_idx:end_idx])
+    else:
+        target_convex_mask_without_jaw = generate_convex_hull(target_image, target_landmarks[start_idx:end_idx])
+    
     target_convex_mask_without_jaw = enlarge_mask(target_convex_mask_without_jaw, enlargement=10)
     
     target_convex_mask_without_jaw = np.invert(target_convex_mask_without_jaw)
@@ -226,7 +261,11 @@ def generate_aligned_image(source_landmark_npz, target_landmark_npz,
     if require_full_mask:
         source_convex_mask = generate_convex_hull(source_image, source_landmarks)
     else:
-        source_convex_mask = generate_convex_hull(source_image, source_landmarks[17:])
+        if requires_bb:
+            source_convex_mask = generate_convex_hull_bb(source_image, source_landmarks[start_idx:end_idx])
+        else:
+            source_convex_mask = generate_convex_hull(source_image, source_landmarks[start_idx:end_idx])
+
         # enlarge the convex mask using the enlargement
         source_convex_mask = enlarge_mask(source_convex_mask, enlargement=5)
         
@@ -237,9 +276,16 @@ def generate_aligned_image(source_landmark_npz, target_landmark_npz,
     source_image_transformed = cv2.warpAffine(source_image, rotate_matrix, (width, height), flags=cv2.INTER_CUBIC)
 
     # used for computing the target background
-    target_convex_mask = np.invert(generate_convex_hull(target_image, target_landmarks))
+    if requires_bb:
+        target_convex_mask = np.invert(generate_convex_hull_bb(target_image, target_landmarks))    
+        target_convex_mask_without_jaw = np.invert(generate_convex_hull_bb(target_image, target_landmarks[start_idx:end_idx]))    
+    else:
+        target_convex_mask = np.invert(generate_convex_hull(target_image, target_landmarks))
+        target_convex_mask_without_jaw = np.invert(generate_convex_hull_bb(target_image, target_landmarks[start_idx:end_idx]))
+
     # target_background = ((target_convex_mask/255.)*target_image).astype(np.uint8)
-    target_convex_mask_without_jaw = np.invert(generate_convex_hull(target_image, target_landmarks[17:]))
+    # target_convex_mask_without_jaw = np.invert(generate_convex_hull(target_image, target_landmarks[start_idx:end_idx]))
+    
     target_without_face_features = apply_mask(target_convex_mask_without_jaw, target_image)
     target_without_face = apply_mask(target_convex_mask, target_image)
 

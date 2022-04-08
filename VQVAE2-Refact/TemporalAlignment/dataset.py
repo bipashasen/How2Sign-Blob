@@ -18,7 +18,28 @@ from torchvision import datasets
 from torchvision import transforms
 
 import TemporalAlignment.perturbations as perturbations
+# from datasets.face_translation_videos3_utils_bb import *
 from datasets.face_translation_videos3_utils import *
+
+requires_bb = False
+extract_lip_region = False
+
+if extract_lip_region:
+    start_idx = 49
+    end_idx = 61
+else:
+    start_idx = 0
+    end_idx = 67
+
+# # for convex hull
+# start_idx = 0
+# end_idx = -1
+
+# for lip region
+# start_idx = 49
+# end_idx = 61
+
+image_extension = '.jpg'
 
 def perturbed_single_image(image_path, landmark_path):
     # returns mask, source_image, source_face_perturbed
@@ -29,7 +50,11 @@ def perturbed_single_image(image_path, landmark_path):
     resized_image_copy = resized_image.copy()
     
     landmark = np.load(landmark_path, allow_pickle=True)['landmark']
-    convex_mask = generate_convex_hull(resized_image, landmark[17:])
+    if requires_bb:
+        convex_mask = generate_convex_hull_bb(resized_image, landmark[start_idx:end_idx])
+    else:
+        convex_mask = generate_convex_hull(resized_image, landmark[start_idx:end_idx])
+
     face_segmented = apply_mask(convex_mask, resized_image)
     face_segmented_perturbed, gt_transformations = perturbations.perturb_image_composite(face_segmented, landmark)
 
@@ -64,7 +89,7 @@ def get_video_frames_perturbed(video_dir, batch_size):
     for i in range(len(source_landmarks_sampled)):
         # construct the paths from the source and target frame paths 
         source_landmark_path = source_landmarks_sampled[i]
-        source_image_path = osp.join(source_landmark_path.rsplit('_', 1)[0]) + '.jpg'
+        source_image_path = osp.join(source_landmark_path.rsplit('_', 1)[0]) + image_extension
         
         mask, face_segmented, source_image, source_face_perturbed, gt_transformation, source_background = \
             perturbed_single_image(source_image_path, source_landmark_path)
@@ -78,15 +103,23 @@ def get_video_frames_perturbed(video_dir, batch_size):
  
     return source_masks, face_segmenteds, source_images, source_faces_perturbed, gt_transformations, source_backgrounds
 
-def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target, batch_size):
+def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target, batch_size, keep_same_index=False):
     landmark_paths_source = sorted(glob(f'{video_dir_source}/*_landmarks.npz'))
     landmark_paths_target = sorted(glob(f'{video_dir_target}/*_landmarks.npz'))
+
+    # print(f'Landmark length {len(landmark_paths_source)}, target : {len(landmark_paths_target)}')
 
     # print(f'number of landmarks: {len(landmark_paths)}')
     # batch_size could be more than the number of jpgs itself,  
     # the second value could be negative in such a case.
     index_source = random.randint(0, max(5, len(landmark_paths_source) - batch_size - 1))
     index_target = random.randint(0, max(5, len(landmark_paths_target) - batch_size - 1))
+
+    if keep_same_index:
+        # TODO target and source index is kept the same
+        index_target = index_source
+
+    # print(f'Indices are : {index_source}, {index_target}')
  
     # after generating the source and target indices, we need to sample the frames 
     source_landmarks_sampled = landmark_paths_source[index_source:index_source+batch_size]
@@ -98,6 +131,7 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
         source_landmarks_sampled = source_landmarks_sampled[:min_len]
         target_landmarks_sampled = target_landmarks_sampled[:min_len]
 
+    source_images = list()
     source_face_perturbeds = list()
     target_images = list()
     target_backgrounds = list()
@@ -107,8 +141,21 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
         source_landmark_npz = source_landmarks_sampled[i]
         target_landmark_npz = target_landmarks_sampled[i]
 
-        source_image_path = osp.join(source_landmark_npz.rsplit('_', 1)[0]) + '.jpg'
-        target_image_path = osp.join(target_landmark_npz.rsplit('_', 1)[0]) + '.jpg'
+        extension = '.jpg'
+
+        source_image_path = osp.join(source_landmark_npz.rsplit('_', 1)[0]) + extension
+        target_image_path = osp.join(target_landmark_npz.rsplit('_', 1)[0]) + extension
+
+        if not osp.exists(source_image_path):
+            extension = '.png'
+            source_image_path = source_image_path.replace('.jpg', extension)
+
+        if not osp.exists(target_image_path):
+            extension = '.png'
+            target_image_path = target_image_path.replace('.jpg', extension)
+
+
+        # print(f'Source image : {source_image_path}, target image : {target_image_path}')
         
         # read the data and apply framewise transformation
         output = generate_warped_image(source_landmark_npz, target_landmark_npz, 
@@ -117,23 +164,31 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
         source_face_perturbed = output[0]
         target_image = output[4]
         target_without_face_features = output[7]
+        source_image = output[8]
  
         source_face_perturbeds.append(source_face_perturbed)
         target_images.append(target_image)
         target_backgrounds.append(target_without_face_features)
+        source_images.append(source_image)
  
-    return source_face_perturbeds, target_images, target_backgrounds
+    return source_face_perturbeds, target_images, target_backgrounds, source_images
 
 def get_validation_datapoints():
     # base = '/scratch/bipasha31/processed_vlog_dataset_copy/validation'
-    base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
+    # base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
+    # base = '/ssd_scratch/cvit/aditya1/processed_video_talkingheads'
+    # base = '/ssd_scratch/cvit/aditya1/acm_related/saved_frames_custom_actor2'
+    base = '/ssd_scratch/cvit/aditya1/custom_validation_full_dataset'
 
-    video_segments = glob(base + '/*/*.mp4')
+    # video_segments = glob(base + '/*_source')
+    video_segments = glob(base + '/*/*.mp4') + glob(base + '/*_source') + glob(base + '/*_target')
 
     def is_good_video(dir):
         return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 10
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
+
+    # return [x for x in video_segments if is_good_video(x)]
 
 def get_datapoints():
     base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy'
@@ -164,10 +219,12 @@ class TemporalAlignmentDataset(Dataset):
         case='jitter', 
         color_jitter_type='',
         cross_identity_required=False,
-        grayscale_required=False):
+        grayscale_required=False,
+        custom_validation_required=False):
         self.mode = mode
 
         self.colorJitterType = color_jitter_type
+        self.custom_validation_required = custom_validation_required
 
         if cross_identity_required:
             self.colorJitterType = ''
@@ -219,7 +276,10 @@ class TemporalAlignmentDataset(Dataset):
         try:
             if self.case == 'jitter':
                 if self.cross_identity_required:
-                    return self.get_item_jitter_network_cross_identity(index)
+                    if self.custom_validation_required:
+                        return self.get_item_jitter_network_custom_validation(index)
+                    else:   
+                        return self.get_item_jitter_network_cross_identity(index)
                 else:
                     return self.get_item_jitter_network(index)
             else:
@@ -229,27 +289,65 @@ class TemporalAlignmentDataset(Dataset):
 
         # if self.case == 'jitter':
         #     if self.cross_identity_required:
-        #         return self.get_item_jitter_network_cross_identity(index)
+        #         if self.custom_validation_required:
+        #             return self.get_item_jitter_network_custom_validation(index)
+        #         else:
+        #             return self.get_item_jitter_network_cross_identity(index)
         #     else:
         #         return self.get_item_jitter_network(index)
         # else:
         #     return self.get_item_alignment_network(index)
-        # # except:
-        # #     return self.__getitem__(random.randint(0, self.__len__()-1))
+        
+    def get_item_jitter_network_custom_validation(self, index):
+        source_video_dir = self.videos[index]
+        target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
+
+        try:
+            target_type = source_video_dir.rsplit('_', 1)[1]
+        except:
+            target_type = None
+
+        # print(f'Source video dir : {source_video_dir}, target type : {target_type}')
+        keep_same_index = False
+
+        print(target_type)
+        # if target_type == 'source':
+        #     # get the target dir
+        #     target_video_dir = source_video_dir.replace(target_type, 'target')
+        #     keep_same_index = True
+        # # elif target_type == 'target':
+        # elif target_type == 'target':
+        #     # get the source dir 
+        #     target_video_dir = source_video_dir.replace(target_type, 'source')
+        #     keep_same_index = True
+
+        source_face_perturbeds, target_images, target_backgrounds, source_images =\
+            get_source_target_video_frames_perturbed(
+                source_video_dir, target_video_dir, self.max_len, keep_same_index=keep_same_index)
+
+        # print(len(source_face_perturbeds))
+
+        source_face_perturbeds = self.load_images_transformed(source_face_perturbeds)
+        target_images = self.load_images_transformed(target_images)
+        target_backgrounds = self.load_images_transformed(target_backgrounds)
+        source_images = self.load_images_transformed(source_images)
+
+        return source_face_perturbeds, [], target_backgrounds, target_images, source_images
 
     def get_item_jitter_network_cross_identity(self, index):
         source_video_dir = self.videos[index]
         target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
 
-        source_face_perturbeds, target_images, target_backgrounds =\
+        source_face_perturbeds, target_images, target_backgrounds, source_images =\
             get_source_target_video_frames_perturbed(
                 source_video_dir, target_video_dir, self.max_len)
 
         source_face_perturbeds = self.load_images_transformed(source_face_perturbeds)
         target_images = self.load_images_transformed(target_images)
         target_backgrounds = self.load_images_transformed(target_backgrounds)
+        source_images = self.load_images_transformed(source_images)
 
-        return source_face_perturbeds, [], target_backgrounds, target_images
+        return source_face_perturbeds, [], target_backgrounds, target_images, source_images
 
     def get_item_jitter_network(self, index):
         video_dir = self.videos[index]
@@ -270,7 +368,7 @@ class TemporalAlignmentDataset(Dataset):
         background = self.load_images_transformed(background)
         source_images = self.load_images_transformed(source_images)
 
-        return source, target, background, source_images
+        return source, target, background, source_images, target
 
     def get_item_alignment_network(self, index):
         video_dir = self.videos[index]

@@ -17,7 +17,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets
 from torchvision import transforms
 
-from datasets.face_translation_videos3_utils import *
+from datasets.face_translation_videos3_utils_bb import *
 
 landmark_name = '_landmarks.npz'
 bad_mp4s = 'bad_mp4s.json'

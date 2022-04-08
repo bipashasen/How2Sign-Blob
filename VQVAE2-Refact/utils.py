@@ -48,13 +48,15 @@ def save_image(data, saveas, video=False):
 
 def process_data(data, device, dataset):
     if dataset >= 6:
-        source, target, background, source_images = data
+        source, target, background, source_images, source_images_original = data
         
         img = torch.cat([source, background], axis=2).squeeze(0).to(device)
         source = source.squeeze(0)
         ground_truth = source_images.squeeze(0).to(device)
 
         S = source.shape[0]
+
+        return img, S, ground_truth, source_images_original.squeeze(0).to(device)
 
     elif dataset == 2: 
         assert len(data) == 4
@@ -221,7 +223,8 @@ def get_facetranslation_latent_conv_perceptual(args, device):
         'val', 50, 
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
-        grayscale_required=args.gray)
+        grayscale_required=args.gray,
+        custom_validation_required=args.custom_validation)
 
     train_loader = DataLoader(
         train_dataset, 
