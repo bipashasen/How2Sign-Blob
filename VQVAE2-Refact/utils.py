@@ -224,13 +224,18 @@ def get_facetranslation_latent_conv_perceptual(args, device):
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
         grayscale_required=args.gray,
-        custom_validation_required=args.custom_validation)
+        custom_validation_required=args.custom_validation,
+        validation_datapoints=args.validation_folder)
 
-    train_loader = DataLoader(
-        train_dataset, 
-        batch_size=1,
-        shuffle=True, 
-        num_workers=2)
+    try:
+        train_loader = DataLoader(
+            train_dataset, 
+            batch_size=1,
+            shuffle=True, 
+            num_workers=2)
+    except:
+        train_loader = None
+        
     val_loader = DataLoader(
         val_dataset, 
         shuffle=True,

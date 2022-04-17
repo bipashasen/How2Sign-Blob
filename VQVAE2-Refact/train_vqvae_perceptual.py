@@ -287,6 +287,7 @@ if __name__ == "__main__":
     parser.add_argument("--custom_validation", action='store_true', required=False)
     parser.add_argument("--sample_folder", type=str, default='samples')
     parser.add_argument("--checkpoint_dir", type=str, default='checkpoint')
+    parser.add_argument("--validation_folder", type=str, default=None)
 
     args = parser.parse_args()
 

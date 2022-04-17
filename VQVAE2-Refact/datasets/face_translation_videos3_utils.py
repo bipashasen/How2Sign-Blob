@@ -208,7 +208,7 @@ def generate_aligned_image(source_landmark_npz, target_landmark_npz,
     target_landmarks = np.load(target_landmark_npz)['landmark']
     target_rotation, target_center, target_distance = compute_rotation(target_landmarks)
 
-    # rotation of the source conditioned on the source orientation 
+    # rotation of the target conditioned on the source orientation 
     target_conditioned_source_rotation = source_rotation - target_rotation
     
     # calculate the scaling that needs to be applied on the source image 

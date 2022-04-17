@@ -173,16 +173,19 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
  
     return source_face_perturbeds, target_images, target_backgrounds, source_images
 
-def get_validation_datapoints():
-    # base = '/scratch/bipasha31/processed_vlog_dataset_copy/validation'
-    # base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
-    # base = '/ssd_scratch/cvit/aditya1/processed_video_talkingheads'
-    # base = '/ssd_scratch/cvit/aditya1/acm_related/saved_frames_custom_actor2'
-    base = '/ssd_scratch/cvit/aditya1/custom_validation_full_dataset'
+def get_validation_datapoints(validation_datapoints_dir):
+    # specify default path is no path is provided
+    if validation_datapoints_dir is None:
+        validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/custom_validation_full_dataset'
 
     # video_segments = glob(base + '/*_source')
-    video_segments = glob(base + '/*/*.mp4') + glob(base + '/*_source') + glob(base + '/*_target')
+    # video_segments = glob(validation_datapoints_dir + '/*/*.mp4') + glob(validation_datapoints_dir + '/*_source') + glob(validation_datapoints_dir + '/*_target')
+    # video_segments = glob(validation_datapoints_dir + '/*') + glob(validation_datapoints_dir + '/*/*.mp4')
 
+    # video_segments = glob(validation_datapoints_dir + '/*_source')
+    video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
+
+    # works for both directories and mp4 files
     def is_good_video(dir):
         return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 10
 
@@ -199,15 +202,18 @@ def get_datapoints():
     def get_name(x):
         return '/'.join(x.split('/')[-4:])
 
-    with open(valid_videos_json_path) as r:
-        valid_videos = json.load(r)
+    # with open(valid_videos_json_path) as r:
+    #     valid_videos = json.load(r)
 
     video_segments = glob(base + '/*/*/*/*.mp4')
 
+    # def is_good_video(dir):
+    #     name = get_name(dir)
+    #     return name in valid_videos\
+    #         and len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 3
+
     def is_good_video(dir):
-        name = get_name(dir)
-        return name in valid_videos\
-            and len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 3
+        return True
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
 
@@ -215,12 +221,14 @@ class TemporalAlignmentDataset(Dataset):
     def __init__(
         self, 
         mode, 
-        max_frame_len, 
+        max_frame_len,
         case='jitter', 
         color_jitter_type='',
         cross_identity_required=False,
         grayscale_required=False,
-        custom_validation_required=False):
+        custom_validation_required=False,
+        validation_datapoints=None):
+
         self.mode = mode
 
         self.colorJitterType = color_jitter_type
@@ -265,7 +273,8 @@ class TemporalAlignmentDataset(Dataset):
         if mode == 'train':
             self.videos = get_datapoints()
         else:
-            self.videos = get_validation_datapoints()
+            self.videos = get_validation_datapoints(validation_datapoints)
+            print(f'The videos are : {self.videos}')
         
         print(f'Loaded {len(self.videos)} videos of {mode} split')
  
@@ -273,44 +282,54 @@ class TemporalAlignmentDataset(Dataset):
         return len(self.videos)
  
     def __getitem__(self, index):
-        try:
-            if self.case == 'jitter':
-                if self.cross_identity_required:
-                    if self.custom_validation_required:
-                        return self.get_item_jitter_network_custom_validation(index)
-                    else:   
-                        return self.get_item_jitter_network_cross_identity(index)
-                else:
-                    return self.get_item_jitter_network(index)
-            else:
-                return self.get_item_alignment_network(index)
-        except:
-            return self.__getitem__(random.randint(0, self.__len__()-1))
-
-        # if self.case == 'jitter':
-        #     if self.cross_identity_required:
-        #         if self.custom_validation_required:
-        #             return self.get_item_jitter_network_custom_validation(index)
+        # try:
+        #     if self.case == 'jitter':
+        #         if self.cross_identity_required:
+        #             if self.custom_validation_required:
+        #                 return self.get_item_jitter_network_custom_validation(index)
+        #             else:   
+        #                 return self.get_item_jitter_network_cross_identity(index)
         #         else:
-        #             return self.get_item_jitter_network_cross_identity(index)
+        #             return self.get_item_jitter_network(index)
         #     else:
-        #         return self.get_item_jitter_network(index)
-        # else:
-        #     return self.get_item_alignment_network(index)
+        #         return self.get_item_alignment_network(index)
+        # except:
+        #     return self.__getitem__(random.randint(0, self.__len__()-1))
+
+        # print(f'Case is {self.case}')
+        if self.case == 'jitter':
+            if self.cross_identity_required:
+                if self.custom_validation_required:
+                    return self.get_item_jitter_network_custom_validation(index)
+                else:
+                    return self.get_item_jitter_network_cross_identity(index)
+            else:
+                return self.get_item_jitter_network(index)
+        else:
+            return self.get_item_alignment_network(index)
         
     def get_item_jitter_network_custom_validation(self, index):
+        # print(f'hello world')
         source_video_dir = self.videos[index]
         target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
 
-        try:
-            target_type = source_video_dir.rsplit('_', 1)[1]
-        except:
-            target_type = None
+        if self.custom_validation_required:
+            # print(f'Self videos path : {self.videos}')
+            full_dir = '/ssd_scratch/cvit/aditya1/supplementary/testing_data_50_trial1'
+            target_videos = glob(full_dir + '/*_target/[0-9][0-9][0-9]')
+
+            target_video_dir = target_videos[random.randint(0, len(target_videos)-1)]
+
+        else:
+            try:
+                target_type = source_video_dir.rsplit('_', 1)[1]
+            except:
+                target_type = None
 
         # print(f'Source video dir : {source_video_dir}, target type : {target_type}')
         keep_same_index = False
 
-        print(target_type)
+        # print(target_type)
         # if target_type == 'source':
         #     # get the target dir
         #     target_video_dir = source_video_dir.replace(target_type, 'target')
