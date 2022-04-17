@@ -235,10 +235,10 @@ def get_facetranslation_latent_conv_perceptual(args, device):
             num_workers=2)
     except:
         train_loader = None
-        
+
     val_loader = DataLoader(
         val_dataset, 
-        shuffle=True,
+        shuffle=False,
         batch_size=1,
         num_workers=2)
 

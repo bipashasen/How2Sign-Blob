@@ -183,7 +183,8 @@ def get_validation_datapoints(validation_datapoints_dir):
     # video_segments = glob(validation_datapoints_dir + '/*') + glob(validation_datapoints_dir + '/*/*.mp4')
 
     # video_segments = glob(validation_datapoints_dir + '/*_source')
-    video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
+    # video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
+    video_segments = glob(validation_datapoints_dir + '/*_target/[0-9][0-9][0-9]')
 
     # works for both directories and mp4 files
     def is_good_video(dir):
