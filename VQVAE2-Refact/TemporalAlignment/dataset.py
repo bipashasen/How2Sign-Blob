@@ -275,7 +275,7 @@ class TemporalAlignmentDataset(Dataset):
             self.videos = get_datapoints()
         else:
             self.videos = get_validation_datapoints(validation_datapoints)
-            print(f'The videos are : {self.videos}')
+            # print(f'The videos are : {self.videos}')
         
         print(f'Loaded {len(self.videos)} videos of {mode} split')
  
@@ -311,21 +311,21 @@ class TemporalAlignmentDataset(Dataset):
         
     def get_item_jitter_network_custom_validation(self, index):
         # print(f'hello world')
-        source_video_dir = self.videos[index]
-        target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
+        # the target dir varies and the source dir is kept constant
+        full_dir = '/ssd_scratch/cvit/aditya1/supplementary/validation_data/vid2_24seconds'
+        # source_video_dirs = glob(osp.join(full_dir, '/*_source'))
+        source_video_dirs = sorted(glob(full_dir + '/*_source'))
 
-        if self.custom_validation_required:
-            # print(f'Self videos path : {self.videos}')
-            full_dir = '/ssd_scratch/cvit/aditya1/supplementary/testing_data_50_trial1'
-            target_videos = glob(full_dir + '/*_target/[0-9][0-9][0-9]')
+        source_video_index = 0
+        source_video_dir = source_video_dirs[source_video_index]
+        
+        # target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
+        target_video_dir = self.videos[index]
 
-            target_video_dir = target_videos[random.randint(0, len(target_videos)-1)]
-
-        else:
-            try:
-                target_type = source_video_dir.rsplit('_', 1)[1]
-            except:
-                target_type = None
+        try:
+            target_type = source_video_dir.rsplit('_', 1)[1]
+        except:
+            target_type = None
 
         # print(f'Source video dir : {source_video_dir}, target type : {target_type}')
         keep_same_index = False

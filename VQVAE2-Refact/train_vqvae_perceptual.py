@@ -92,7 +92,7 @@ def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sa
                 frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
 
                 # os.makedirs(sample_folder, exist_ok=True)
-                save_frames_as_video(frames, saveas, fps=25)
+                save_frames_as_video(frames, saveas, fps=30)
 
 def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
     def get_proper_shape(x):
@@ -125,8 +125,8 @@ def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, samp
             out = out.detach().cpu()
             out = [denormalize(x).permute(1, 2, 0).numpy() for x in out]
 
-            save_frames_as_video(sample, save_as_sample, fps=25)
-            save_frames_as_video(out, save_as_out, fps=25)
+            save_frames_as_video(sample, save_as_sample, fps=30)
+            save_frames_as_video(out, save_as_out, fps=30)
 
 def validation(model, vqlpips, val_loader, device, epoch, i, sample_folder, run_type='train'):
     if dataset >= 6:
