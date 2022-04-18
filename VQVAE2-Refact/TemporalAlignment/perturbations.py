@@ -192,7 +192,7 @@ def perturb_image_composite(face_image, landmark):
     perturbation_functions = [
         translate_horizontal,
         translate_vertical,
-        rotate_image,
+        # rotate_image,
         resize_image,
         # shear_image,
         # image_flip,

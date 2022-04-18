@@ -173,25 +173,15 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
  
     return source_face_perturbeds, target_images, target_backgrounds, source_images
 
-def get_validation_datapoints(validation_datapoints_dir):
-    # specify default path is no path is provided
-    if validation_datapoints_dir is None:
-        validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/custom_validation_full_dataset'
+def get_validation_datapoints(base):
+    # base = '/scratch/bipasha31/processed_vlog_dataset_copy/validation'
+    # base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
+    video_segments = glob(base + '/*/*.mp4')
 
-    # video_segments = glob(base + '/*_source')
-    # video_segments = glob(validation_datapoints_dir + '/*/*.mp4') + glob(validation_datapoints_dir + '/*_source') + glob(validation_datapoints_dir + '/*_target')
-    # video_segments = glob(validation_datapoints_dir + '/*') + glob(validation_datapoints_dir + '/*/*.mp4')
-
-    # video_segments = glob(validation_datapoints_dir + '/*_source')
-    video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
-
-    # works for both directories and mp4 files
     def is_good_video(dir):
         return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 10
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
-
-    # return [x for x in video_segments if is_good_video(x)]
 
 def get_datapoints():
     base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy'
@@ -202,18 +192,18 @@ def get_datapoints():
     def get_name(x):
         return '/'.join(x.split('/')[-4:])
 
-    # with open(valid_videos_json_path) as r:
-    #     valid_videos = json.load(r)
+    with open(valid_videos_json_path) as r:
+        valid_videos = json.load(r)
 
     video_segments = glob(base + '/*/*/*/*.mp4')
 
-    # def is_good_video(dir):
-    #     name = get_name(dir)
-    #     return name in valid_videos\
-    #         and len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 3
-
     def is_good_video(dir):
-        return True
+        name = get_name(dir)
+        return name in valid_videos\
+            and len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 3
+
+    # def is_good_video(dir):
+    #     return True
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
 
@@ -274,7 +264,7 @@ class TemporalAlignmentDataset(Dataset):
             self.videos = get_datapoints()
         else:
             self.videos = get_validation_datapoints(validation_datapoints)
-            print(f'The videos are : {self.videos}')
+            # print(f'The videos are : {self.videos}')
         
         print(f'Loaded {len(self.videos)} videos of {mode} split')
  
