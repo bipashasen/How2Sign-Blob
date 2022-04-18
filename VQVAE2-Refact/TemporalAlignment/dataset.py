@@ -312,11 +312,12 @@ class TemporalAlignmentDataset(Dataset):
     def get_item_jitter_network_custom_validation(self, index):
         # print(f'hello world')
         # the target dir varies and the source dir is kept constant
-        full_dir = '/ssd_scratch/cvit/aditya1/supplementary/validation_data/vid2_24seconds'
+        full_dir = '/ssd_scratch/cvit/aditya1/supplementary/validation_data/vid1_18seconds'
         # source_video_dirs = glob(osp.join(full_dir, '/*_source'))
         source_video_dirs = sorted(glob(full_dir + '/*_source'))
 
-        source_video_index = 0
+
+        source_video_index = 10
         source_video_dir = source_video_dirs[source_video_index]
         
         # target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
