@@ -112,8 +112,10 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
     # print(f'number of landmarks: {len(landmark_paths)}')
     # batch_size could be more than the number of jpgs itself,  
     # the second value could be negative in such a case.
-    index_source = random.randint(0, max(5, len(landmark_paths_source) - batch_size - 1))
-    index_target = random.randint(0, max(5, len(landmark_paths_target) - batch_size - 1))
+    # index_source = random.randint(0, max(5, len(landmark_paths_source) - batch_size - 1))
+    # index_target = random.randint(0, max(5, len(landmark_paths_target) - batch_size - 1))
+
+    index_source = index_target = 0
 
     if keep_same_index:
         # TODO target and source index is kept the same
@@ -312,12 +314,12 @@ class TemporalAlignmentDataset(Dataset):
     def get_item_jitter_network_custom_validation(self, index):
         # print(f'hello world')
         # the target dir varies and the source dir is kept constant
-        full_dir = '/ssd_scratch/cvit/aditya1/supplementary/validation_data/vid1_18seconds'
+        full_dir = '/ssd_scratch/cvit/aditya1/supplementary/validation_data/vid1_proper'
         # source_video_dirs = glob(osp.join(full_dir, '/*_source'))
         source_video_dirs = sorted(glob(full_dir + '/*_source'))
 
 
-        source_video_index = 10
+        source_video_index = 3
         source_video_dir = source_video_dirs[source_video_index]
         
         # target_video_dir = self.videos[random.randint(0, self.__len__()-1)]

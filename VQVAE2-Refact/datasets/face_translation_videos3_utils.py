@@ -14,6 +14,8 @@ from skimage import transform as tf
 
 from scipy.ndimage import laplace
 
+from skimage import exposure
+
 target_without_face_apply = True
 
 def resize_frame(frame, resize_dim=256):
@@ -135,6 +137,12 @@ def compute_rotation(shape):
 def apply_mask(mask, image):
     return ((mask / 255.) * image).astype(np.uint8)
 
+def histogram_color_matching(src, dest):
+    multi = True if src.shape[-1] > 1 else False
+    matched = exposure.match_histograms(src, dest, multichannel=multi)
+    
+    return matched
+
 # code to generate the alignment between the source and the target image 
 def generate_warped_image(source_landmark_npz, target_landmark_npz, 
                             source_image_path, target_image_path,
@@ -147,6 +155,9 @@ def generate_warped_image(source_landmark_npz, target_landmark_npz,
     source_image = resize_frame(io.imread(source_image_path))
     target_image = resize_frame(io.imread(target_image_path))
     
+    # apply the histogram color match on the source_image using the target_image
+    source_image = histogram_color_matching(source_image, target_image)
+
     source_landmarks = np.load(source_landmark_npz)['landmark']
 
     target_landmarks = np.load(target_landmark_npz)['landmark']
