@@ -178,13 +178,15 @@ def get_validation_datapoints(base):
     # base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy/validation'
     video_segments = glob(base + '/*/*.mp4')
 
+    print(f'Loaded {len(video_segments)} for validation')
+
     def is_good_video(dir):
         return len(glob(f'{dir.split(".")[0]}/*_landmarks.npz')) > 10
 
     return [x.replace('.mp4', '') for x in video_segments if is_good_video(x)]
 
 def get_datapoints():
-    base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy'
+    base = '/ssd_scratch/cvit/aditya1/ablation/checkpoints/processed_vlog_dataset_copy'
     valid_videos_json_path = os.path.join(base, 'valid_folders.json')
     # base = '/scratch/bipasha31/processed_vlog_dataset_copy'
     # valid_videos_json_path = base + '/valid_folders.json'

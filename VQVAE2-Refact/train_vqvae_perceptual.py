@@ -92,7 +92,7 @@ def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sa
                 frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
 
                 # os.makedirs(sample_folder, exist_ok=True)
-                save_frames_as_video(frames, saveas, fps=25)
+                save_frames_as_video(frames, saveas, fps=30)
 
 def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
     def get_proper_shape(x):
