@@ -39,8 +39,6 @@ else:
 # start_idx = 49
 # end_idx = 61
 
-image_extension = '.jpg'
-
 def perturbed_single_image(image_path, landmark_path):
     # returns mask, source_image, source_face_perturbed
 
@@ -89,8 +87,14 @@ def get_video_frames_perturbed(video_dir, batch_size):
     for i in range(len(source_landmarks_sampled)):
         # construct the paths from the source and target frame paths 
         source_landmark_path = source_landmarks_sampled[i]
-        source_image_path = osp.join(source_landmark_path.rsplit('_', 1)[0]) + image_extension
-        
+
+        # check what image extension to use 
+        file_without_extension = osp.join(source_landmark_path.rsplit('_', 1)[0])
+        if os.path.exists(file_without_extension + '.jpg'):
+            source_image_path = file_without_extension + '.jpg'
+        else:
+            source_image_path = file_without_extension + '.png'
+
         mask, face_segmented, source_image, source_face_perturbed, gt_transformation, source_background = \
             perturbed_single_image(source_image_path, source_landmark_path)
 
@@ -106,6 +110,8 @@ def get_video_frames_perturbed(video_dir, batch_size):
 def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target, batch_size, keep_same_index=False):
     landmark_paths_source = sorted(glob(f'{video_dir_source}/*_landmarks.npz'))
     landmark_paths_target = sorted(glob(f'{video_dir_target}/*_landmarks.npz'))
+
+    print(f'Source landmarks : {len(landmark_paths_source)}, target landmarks : {len(landmark_paths_target)}')
 
     # print(f'Landmark length {len(landmark_paths_source)}, target : {len(landmark_paths_target)}')
 
@@ -176,14 +182,21 @@ def get_source_target_video_frames_perturbed(video_dir_source, video_dir_target,
 def get_validation_datapoints(validation_datapoints_dir):
     # specify default path is no path is provided
     if validation_datapoints_dir is None:
-        validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/custom_validation_full_dataset'
+        # validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/acm_rebuttal/validation'
+        # validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/rebuttal_scores_validation/validation_scores_datadir'
+        validation_datapoints_dir = '/ssd_scratch/cvit/aditya1/data_video_vqvae/metrics_baseline'
+
+    print(f'Validation dir is : {validation_datapoints_dir}')
 
     # video_segments = glob(base + '/*_source')
     # video_segments = glob(validation_datapoints_dir + '/*/*.mp4') + glob(validation_datapoints_dir + '/*_source') + glob(validation_datapoints_dir + '/*_target')
     # video_segments = glob(validation_datapoints_dir + '/*') + glob(validation_datapoints_dir + '/*/*.mp4')
 
     # video_segments = glob(validation_datapoints_dir + '/*_source')
-    video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
+    # video_segments = glob(validation_datapoints_dir + '/*_source/[0-9][0-9][0-9]')
+    # video_segments = glob(validation_datapoints_dir + '/*/[0-9][0-9][0-9][0-9][0-9]')
+
+    video_segments = glob(validation_datapoints_dir + '/source_gt/*.mp4')
 
     # works for both directories and mp4 files
     def is_good_video(dir):
@@ -194,7 +207,7 @@ def get_validation_datapoints(validation_datapoints_dir):
     # return [x for x in video_segments if is_good_video(x)]
 
 def get_datapoints():
-    base = '/ssd_scratch/cvit/aditya1/processed_vlog_dataset_copy'
+    base = '/ssd_scratch/cvit/aditya1/data_video_vqvae/processed_vlog_dataset_copy'
     valid_videos_json_path = os.path.join(base, 'valid_folders.json')
     # base = '/scratch/bipasha31/processed_vlog_dataset_copy'
     # valid_videos_json_path = base + '/valid_folders.json'
@@ -270,45 +283,55 @@ class TemporalAlignmentDataset(Dataset):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 		]
 
+        print(f'Running mode is : {mode}')
+
         if mode == 'train':
             self.videos = get_datapoints()
+            print(f'Number of training datapoints loaded : {len(self.videos)}')
         else:
             self.videos = get_validation_datapoints(validation_datapoints)
-            print(f'The videos are : {self.videos}')
+            print(f'Number of validation videos loaded : {len(self.videos)}')
+            print(f'The validation videos are : {self.videos}')
         
-        print(f'Loaded {len(self.videos)} videos of {mode} split')
+        # print(f'Loaded {len(self.videos)} videos of {mode} split')
  
     def __len__(self):
         return len(self.videos)
  
     def __getitem__(self, index):
-        # try:
-        #     if self.case == 'jitter':
-        #         if self.cross_identity_required:
-        #             if self.custom_validation_required:
-        #                 return self.get_item_jitter_network_custom_validation(index)
-        #             else:   
-        #                 return self.get_item_jitter_network_cross_identity(index)
-        #         else:
-        #             return self.get_item_jitter_network(index)
-        #     else:
-        #         return self.get_item_alignment_network(index)
-        # except:
-        #     return self.__getitem__(random.randint(0, self.__len__()-1))
+        try:
+            if self.case == 'jitter':
+                if self.cross_identity_required:
+                    if self.custom_validation_required:
+                        return self.get_item_jitter_network_custom_validation(index)
+                    else:   
+                        return self.get_item_jitter_network_cross_identity(index)
+                else:
+                    return self.get_item_jitter_network(index)
+            else:
+                return self.get_item_alignment_network(index)
+        except:
+            return self.__getitem__(random.randint(0, self.__len__()-1))
 
+        '''
         # print(f'Case is {self.case}')
         if self.case == 'jitter':
+            # print(f'Saw case jitter')
             if self.cross_identity_required:
+                print(f'Cross id required')
                 if self.custom_validation_required:
+                    print('Custom validation required')
                     return self.get_item_jitter_network_custom_validation(index)
                 else:
                     return self.get_item_jitter_network_cross_identity(index)
             else:
+                # print(f'Require jitter network')
                 return self.get_item_jitter_network(index)
         else:
             return self.get_item_alignment_network(index)
+        '''
         
-    def get_item_jitter_network_custom_validation(self, index):
+    def get_item_jitter_network_custom_validation_old(self, index):
         # print(f'hello world')
         source_video_dir = self.videos[index]
         target_video_dir = self.videos[random.randint(0, self.__len__()-1)]
@@ -352,6 +375,57 @@ class TemporalAlignmentDataset(Dataset):
         source_images = self.load_images_transformed(source_images)
 
         return source_face_perturbeds, [], target_backgrounds, target_images, source_images
+
+
+    # custom method defined for computing the scores for the acm rebuttal 
+    def get_item_jitter_network_custom_validation(self, index):
+        # print(f'hello world')
+
+        source_video_dir = self.videos[index]
+        target_video_dir = self.videos[index].replace('source', 'target')
+
+        print(f'Current source : {source_video_dir}, current target : {target_video_dir}')
+
+        # if self.custom_validation_required:
+        #     # print(f'Self videos path : {self.videos}')
+        #     full_dir = '/ssd_scratch/cvit/aditya1/supplementary/testing_data_50_trial1'
+        #     target_videos = glob(full_dir + '/*_target/[0-9][0-9][0-9]')
+
+        #     target_video_dir = target_videos[random.randint(0, len(target_videos)-1)]
+
+        # else:
+        #     try:
+        #         target_type = source_video_dir.rsplit('_', 1)[1]
+        #     except:
+        #         target_type = None
+
+        # print(f'Source video dir : {source_video_dir}, target type : {target_type}')
+        keep_same_index = False
+
+        # print(target_type)
+        # if target_type == 'source':
+        #     # get the target dir
+        #     target_video_dir = source_video_dir.replace(target_type, 'target')
+        #     keep_same_index = True
+        # # elif target_type == 'target':
+        # elif target_type == 'target':
+        #     # get the source dir 
+        #     target_video_dir = source_video_dir.replace(target_type, 'source')
+        #     keep_same_index = True
+
+        source_face_perturbeds, target_images, target_backgrounds, source_images =\
+            get_source_target_video_frames_perturbed(
+                source_video_dir, target_video_dir, self.max_len, keep_same_index=keep_same_index)
+
+        # print(len(source_face_perturbeds))
+
+        source_face_perturbeds = self.load_images_transformed(source_face_perturbeds)
+        target_images = self.load_images_transformed(target_images)
+        target_backgrounds = self.load_images_transformed(target_backgrounds)
+        source_images = self.load_images_transformed(source_images)
+
+        return source_face_perturbeds, [], target_backgrounds, target_images, source_images
+
 
     def get_item_jitter_network_cross_identity(self, index):
         source_video_dir = self.videos[index]
@@ -432,6 +506,8 @@ class TemporalAlignmentDataset(Dataset):
     def load_images_transformed(self, images, jitter=None):
         transform_function = jitter\
             if jitter is not None else self.transform
+
+        # print(f'The len of images are : {len(images)}')
 
         return torch.vstack([transform_function(p).unsqueeze(0) for p in images])
 

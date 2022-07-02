@@ -37,6 +37,10 @@ def run_step(model, vqlpips, data, device, run='train'):
 
     out, latent_loss = model(img)
 
+    # print the output shape 
+    print(f'The ground truth has the dimension : {ground_truth.shape}')
+    print(f'The prediction from the model has the dimension : {out.shape}')
+
     out = out[:, :3]
     
     recon_loss = criterion(out, ground_truth)

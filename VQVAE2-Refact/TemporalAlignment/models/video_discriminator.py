@@ -1,4 +1,5 @@
 # This class implements the Video Discriminator 
+# Discriminator based on MocoGAN's discriminator
 import torch
 import torch.nn as nn
 import torch.nn.parallel
