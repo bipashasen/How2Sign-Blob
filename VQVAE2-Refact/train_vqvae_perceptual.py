@@ -18,6 +18,8 @@ import distributed as dist
 from utils import *
 from config import DATASET, LATENT_LOSS_WEIGHT, PERCEPTUAL_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
 
+import numpy as np
+
 criterion = nn.MSELoss()
 
 global_step = 0
@@ -38,8 +40,8 @@ def run_step(model, vqlpips, data, device, run='train'):
     out, latent_loss = model(img)
 
     # print the output shape 
-    print(f'The ground truth has the dimension : {ground_truth.shape}')
-    print(f'The prediction from the model has the dimension : {out.shape}')
+    # print(f'The ground truth has the dimension : {ground_truth.shape}')
+    # print(f'The prediction from the model has the dimension : {out.shape}')
 
     out = out[:, :3]
     
@@ -70,6 +72,7 @@ def blob2full_validation(model, img):
         f"sample/{epoch + 1}_{i}.png")
 
 def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
+    print(f'Inside jitter validation')
     for i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
             source_images, input, prediction, source_images_original = run_step(model, vqlpips, data, device, run='val')
@@ -86,7 +89,8 @@ def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sa
         }
 
         # if i % (len(val_loader) // 10) == 0 or run_type != 'train':
-        if run_type != 'train':
+        # save the frames as videos as required
+        if True:
             def denormalize(x):
                 return (x.clamp(min=-1.0, max=1.0) + 1)/2
 
@@ -96,6 +100,7 @@ def jitter_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sa
                 frames = [denormalize(x).permute(1, 2, 0).numpy() for x in frames]
 
                 # os.makedirs(sample_folder, exist_ok=True)
+                # print(f'Saving frames as video, length is : {len(frames)}')
                 save_frames_as_video(frames, saveas, fps=25)
 
 def base_validation(model, vqlpips, val_loader, device, epoch, i, run_type, sample_folder):
@@ -230,6 +235,7 @@ def main(args):
             output_device=dist.get_local_rank(),
         )
 
+    # this loads the pretrained checkpoint if available
     if args.ckpt:
         print(f'Loading pretrained checkpoint - {args.ckpt}')
         state_dict = torch.load(args.ckpt)
@@ -308,5 +314,8 @@ if __name__ == "__main__":
     # checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     print(args, flush=True)
+
+    print(f'Weight configuration used - perceptual loss weight : \
+        {PERCEPTUAL_LOSS_WEIGHT}, latent loss weight : {LATENT_LOSS_WEIGHT}')
 
     dist.launch(main, args.n_gpu, 1, 0, args.dist_url, args=(args,))

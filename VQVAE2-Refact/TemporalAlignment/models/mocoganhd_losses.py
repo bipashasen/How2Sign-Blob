@@ -110,6 +110,7 @@ class Relativistic_Average_LSGAN(GANLoss):
     '''
         Relativistic average LSGAN
     '''
+    
     def __call__(self, input_1, input_2, target_is_real):
         if isinstance(input_1[0], list):
             loss = 0

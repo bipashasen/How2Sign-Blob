@@ -21,7 +21,7 @@ from scheduler import CycleScheduler
 import distributed as dist
 
 from utils import *
-from config import DATASET, LATENT_LOSS_WEIGHT, DISC_LOSS_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
+from config import DATASET, LATENT_LOSS_WEIGHT, G_LOSS_2D_WEIGHT, G_LOSS_3D_WEIGHT, SAMPLE_SIZE_FOR_VISUALIZATION
 
 criterion = nn.MSELoss()
 
@@ -82,7 +82,7 @@ def blob2full_validation(model, img):
 def jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder):
     for i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            source_images, input, prediction = run_step(model, data, device, run='val')
+            source_images, input, prediction, source_images_original = run_step(model, data, device, run='val')
             
         source_hulls = input[:, :3]
         background = input[:, 3:]
@@ -91,10 +91,12 @@ def jitter_validation(model, val_loader, device, epoch, i, run_type, sample_fold
             'source': source_hulls,
             'background': background,
             'prediction': prediction,
-            'source_images': source_images
+            'source_images': source_images,
+            'source_original': source_images_original
         }
 
-        if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+        # if i % (len(val_loader) // 10) == 0 or run_type != 'train':
+        if True:
             def denormalize(x):
                 return (x.clamp(min=-1.0, max=1.0) + 1)/2
 
@@ -113,7 +115,7 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
 
     for val_i, data in enumerate(tqdm(val_loader)):
         with torch.no_grad():
-            sample, _, out = run_step(model, data, device, 'val')
+            sample, _, out, source_img = run_step(model, data, device, 'val')
 
         if val_i % (len(val_loader)//10) == 0: # save 10 results
 
@@ -137,7 +139,7 @@ def base_validation(model, val_loader, device, epoch, i, run_type, sample_folder
             save_frames_as_video(out, save_as_out, fps=25)
 
 def validation(model, val_loader, device, epoch, i, sample_folder, run_type='train'):
-    if dataset == 6:
+    if dataset >= 6:
         jitter_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
     else:
         base_validation(model, val_loader, device, epoch, i, run_type, sample_folder)
@@ -158,9 +160,10 @@ def train(model, loader, val_loader, scheduler, device,
 
     SAMPLE_FRAMES = 16 # sample 16 frames for the discriminator
 
-    global global_step
-
     for i, data in enumerate(loader):
+        global global_step
+        global_step += 1
+        
         recon_loss, latent_loss, S, out, ground_truth = run_step(model, data, device)
 
         # print(out.shape, ground_truth.shape)
@@ -170,6 +173,11 @@ def train(model, loader, val_loader, scheduler, device,
         x_fake, x = out.unsqueeze(0), ground_truth.unsqueeze(0)
 
         # generate a random idx 
+        # check if there are atleast SAMPLE_FRAMES in the input
+        if num_frames < SAMPLE_FRAMES:
+            print(f'Frames found {num_frames} less than minimum {SAMPLE_FRAMES}')
+            continue
+
         random_idx = random.randint(0, num_frames - SAMPLE_FRAMES)
 
         x_fake = x_fake[:, random_idx:random_idx+SAMPLE_FRAMES]
@@ -216,10 +224,17 @@ def train(model, loader, val_loader, scheduler, device,
             G_loss_3d = (criterionGAN(D_fake_3d, D_real_3d, True) + 
                         criterionGAN(D_real_3d, D_fake_3d, False)) * 0.5
 
-            G_loss = recon_loss + latent_loss + G_loss_2d + G_loss_3d
+            G_loss = recon_loss \
+                    + LATENT_LOSS_WEIGHT * latent_loss \
+                    + G_LOSS_2D_WEIGHT * G_loss_2d \
+                    + G_LOSS_3D_WEIGHT * G_loss_3d
 
             # backpropagate and compute the gradients for the generator
             model.zero_grad()
+            # zero out the gradients of the image and temporal discriminator
+            modelD_3d.optim.zero_grad()
+            modelD_img.optim.zero_grad()
+
             G_loss.backward()
 
             if scheduler is not None:
@@ -269,7 +284,7 @@ def train(model, loader, val_loader, scheduler, device,
             D_loss_real = criterionGAN(D_real, D_fake, True)
             D_loss_fake = criterionGAN(D_fake, D_real, False)
 
-            # disc image loss
+            # disc image loss - modification required at a later stage
             D_loss = (D_loss_real + D_loss_fake) * 0.5
 
             # backpropagate and compute the gradients and optimize the disc
@@ -302,7 +317,15 @@ def train(model, loader, val_loader, scheduler, device,
 
             os.makedirs(checkpoint_dir, exist_ok=True)
 
+            # save the vqvae2 generator weights 
             torch.save(model.state_dict(), f"{checkpoint_dir}/vqvae_{epoch+1}_{str(i + 1).zfill(4)}.pt")
+
+            # save the discriminator weights
+            # save the temporal disc weights
+            torch.save(modelD_3d.state_dict(), f"{checkpoint_dir}/modelD_3d_{epoch+1}_{str(i+1).zfill(4)}.pt")
+
+            # save the image/content disc weights  
+            torch.save(modelD_img.state_dict(), f"{checkpoint_dir}/modelD_img_{epoch+1}_{str(i+1).zfill(4)}.pt")
 
             # reverse the training state of the model
             model.train()
@@ -329,8 +352,9 @@ def main(args):
     modelD_img = modelD_img.to(device)
     modelD_3d = modelD_3d.to(device)
 
-    # loading the pretrained checkpoint
+    # loading the pretrained generator weights
     if args.ckpt:
+        print(f'Loading pretrained generator model : {args.ckpt}')
         state_dict = torch.load(args.ckpt)
         state_dict = { k.replace('module.', ''): v for k, v in state_dict.items() }  
         try:
@@ -384,7 +408,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--sched", type=str)
     parser.add_argument("--checkpoint_suffix", type=str, default='')
-    parser.add_argument("--validate_at", type=int, default=512)
+    parser.add_argument("--validate_at", type=int, default=1024)
     parser.add_argument("--ckpt", required=False)
     parser.add_argument("--test", action='store_true', required=False)
     parser.add_argument("--gray", action='store_true', required=False)
@@ -410,6 +434,10 @@ if __name__ == "__main__":
     # checkpoint_dir = checkpoint_dir.format(args.checkpoint_suffix)
 
     print(args, flush=True)
+
+    print(f'Weight configuration used : + \
+            {LATENT_LOSS_WEIGHT}, 2d disc weight : {G_LOSS_2D_WEIGHT}, + \
+            temporal disc weight : {G_LOSS_3D_WEIGHT}')
 
     # dist.launch(main, args.n_gpu, 1, 0, args.dist_url, args=(args,))
     main(args)

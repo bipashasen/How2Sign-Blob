@@ -325,16 +325,29 @@ def get_facetranslation_quantization_conv_perceptual(args, device):
 
     return train_loader, val_loader, model, vqlpips
 
-def get_facetranslation_mocoganhd_disc(args, device):
+def get_facetranslation_mocoganhd_disc(args, device, perceptual=False):
     from TemporalAlignment.dataset import TemporalAlignmentDataset 
-    from models.vqvae_conv3d import VQVAE
+    # from models.vqvae_conv3d import VQVAE
+    from models.vqvae_conv3d_latent import VQVAE
     from TemporalAlignment.models.mocoganhd_content_disc import ModelD_img
     from TemporalAlignment.models.mocoganhd_video_disc import ModelD_3d
-    from TemporalAlignment.models.mocoganhd_models import model_to_gpu
 
-    print(f'Loading the temporal alignment model with mocoganhd disc')
+    if perceptual:
+        print(f'Loading the temporal alignment model with mocoganhd disc with perceptual loss')
+    else:
+        print(f'Loading the temporal alignment model with mocoganhd disc without perceptual loss')
 
     model = VQVAE(in_channel=3*2).to(device)
+
+    train_frames = 50
+    val_frames = 60
+
+    if perceptual:
+        from loss import VQLPIPS
+        vqlpips = VQLPIPS().to(device)
+
+        train_frames = 12
+        val_frames = 16
 
     # initialize the model discriminators 
     # params required for modeld_img discriminator 
@@ -354,12 +367,12 @@ def get_facetranslation_mocoganhd_disc(args, device):
     # modelD_3d = model_to_gpu(modelD_3d, True, 0)
 
     train_dataset = TemporalAlignmentDataset(
-        'train', 30, 
+        'train', train_frames, 
         color_jitter_type=args.colorjit,
         grayscale_required=args.gray)
 
     val_dataset = TemporalAlignmentDataset(
-        'val', 50, 
+        'val', val_frames, 
         color_jitter_type=args.colorjit,
         cross_identity_required=args.crossid,
         grayscale_required=args.gray)
@@ -376,7 +389,73 @@ def get_facetranslation_mocoganhd_disc(args, device):
         num_workers=2)
 
     # model here represents the vqvae2 model which is the generator in the gan setup
-    return train_loader, val_loader, model, modelD_img, modelD_3d
+    if perceptual:
+        return train_loader, val_loader, model, modelD_img, modelD_3d, vqlpips
+    else:
+        return train_loader, val_loader, model, modelD_img, modelD_3d
+
+
+# uses the mocogan's simpler image and temporal discriminator
+def get_facetranslation_mocogan_disc(args, device, perceptual):
+    from TemporalAlignment.dataset import TemporalAlignmentDataset 
+    # from models.vqvae_conv3d import VQVAE
+    from models.vqvae_conv3d_latent import VQVAE
+    from TemporalAlignment.models.mocogan_discriminator import PatchImageDiscriminator, PatchVideoDiscriminator
+
+    model = VQVAE(in_channel=3*2).to(device)
+
+    train_frames = 40
+    val_frames = 50
+
+    in_channels = 3
+
+    # patch image discriminator
+    patch_image_disc = PatchImageDiscriminator(in_channels)
+
+    # patch video discriminator
+    patch_video_disc = PatchVideoDiscriminator(in_channels)
+
+    # optimizers for both the discriminators
+    opt_image_discriminator = optim.Adam(patch_image_disc.parameters(), lr=0.0002, betas=(0.5, 0.999),
+                                             weight_decay=0.00001)
+    opt_video_discriminator = optim.Adam(patch_video_disc.parameters(), lr=0.0002, betas=(0.5, 0.999),
+                                             weight_decay=0.00001)
+
+    if perceptual:
+        from loss import VQLPIPS
+        vqlpips = VQLPIPS().to(device)
+
+        print(f'Adding the perceptual loss')
+
+        train_frames = 16 # the video discriminator will not work on this
+        val_frames = 25
+
+    train_dataset = TemporalAlignmentDataset(
+        'train', train_frames, 
+        color_jitter_type=args.colorjit,
+        grayscale_required=args.gray)
+
+    val_dataset = TemporalAlignmentDataset(
+        'val', val_frames, 
+        color_jitter_type=args.colorjit,
+        cross_identity_required=args.crossid,
+        grayscale_required=args.gray)
+
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=1,
+        shuffle=True, 
+        num_workers=2)
+    val_loader = DataLoader(
+        val_dataset, 
+        shuffle=True,
+        batch_size=1,
+        num_workers=2)
+
+    if perceptual:
+        return train_loader, val_loader, model, patch_image_disc, patch_video_disc, opt_image_discriminator, opt_video_discriminator, vqlpips
+    else:
+        return train_loader, val_loader, model, patch_image_disc, patch_video_disc, opt_image_discriminator, opt_video_discriminator
 
 def get_facetranslation_multipleframes_loaders_and_model(args, device):
     from datasets.face_translation_multiple_frames import FacialTransformsMultipleFramesDataset
@@ -495,4 +574,7 @@ def get_loaders_and_models(args, dataset, default_transform, device, test=False)
         return get_facetranslation_concatenated_on_different_channels(args, device, perceptual=True)
     elif dataset == 14:
         # uses the discriminator by mocogan_hd model (image disc + temporal 3d disc)
-        return get_facetranslation_mocoganhd_disc(args, device)
+        return get_facetranslation_mocoganhd_disc(args, device, perceptual=True)
+    elif dataset == 15:
+        # uses the simpler content and motion content discriminators of mocogan
+        return get_facetranslation_mocogan_disc(args, device, perceptual=False)

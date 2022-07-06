@@ -32,7 +32,7 @@ BASE = '/ssd_scratch/cvit/aditya1/video_vqvae2_results'
 # checkpoint_dir = 'checkpoint_{}'
 
 def run_step(model, data, device, run='train'):
-    img, S, ground_truth = process_data(data, device, dataset)
+    img, S, ground_truth, source_images_original = process_data(data, device, dataset)
 
     out, latent_loss = model(img)
 
@@ -176,6 +176,9 @@ def train(model, loader, val_loader, optimizer, scheduler, device, epoch, valida
 
         if i % validate_at == 0:
             model.eval()
+
+            # going inside the validation
+            print(f'Going inside the validation')
 
             validation(model, val_loader, device, epoch, i, sample_folder)
 

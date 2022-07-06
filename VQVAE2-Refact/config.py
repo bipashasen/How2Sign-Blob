@@ -6,11 +6,21 @@ DATASETS_MAP = {
     'facetranslation': 5
 }
 
-DATASET = 14
-LATENT_LOSS_WEIGHT = 0.25
-DISC_LOSS_WEIGHT = 0.25 # TODO - modify
-PERCEPTUAL_LOSS_WEIGHT = 1
+DATASET = 15
+LATENT_LOSS_WEIGHT = 1 # latent loss has been kept at 1
+PERCEPTUAL_LOSS_WEIGHT = 0.25 # modified for the experiment training from scratch
+
+# weights corresponding to mocoganhd discriminator 
+G_LOSS_2D_WEIGHT = 0.25
+G_LOSS_3D_WEIGHT = 0.25
+
+image_disc_weight = 0.5
+video_disc_weight = 0.5
+
+D_LOSS_WEIGHT = 0.1
+
 SAMPLE_SIZE_FOR_VISUALIZATION = 8
+DISC_LOSS_WEIGHT = 0.25 # TODO - modify
 
 # ---- config for vlog_all5losses -- video-predisc ---- #
 # adversarial_disc_start = 15000
